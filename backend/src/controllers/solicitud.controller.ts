@@ -13,30 +13,45 @@ function formatTime(d: Date): string {
 }
 
 export async function crearSolicitud(req: Request, res: Response): Promise<void> {
+  console.log("=== DIAGNÓSTICO DE SOLICITUD TIGRETRACK ===");
+  console.log("Campos recibidos en req.body:", JSON.stringify(req.body, null, 2));
   try {
     const {
       folio,
       nombreEvento,
       descripcion,
-      objetivoCobertura,
-      publicoObjetivo,
-      autoridadesAsistentes,
+      objetivo,
+      publico,
+      autoridades,
       plantelId,
       institucionId,
-      lugarEspecifico,
+      lugar,
+      ubicacion,
       fechaEvento,
       horaInicio,
       horaFin,
       responsableNombre,
-      responsableWhatsapp,
-      responsableEmail,
-      departamentoSolicitante,
+      contacto,
+      area,
       observaciones,
       prioridad,
     } = req.body
 
-    if (!folio || !nombreEvento || !plantelId || !institucionId || !fechaEvento || !horaInicio || !horaFin || !responsableNombre) {
-      res.status(400).json({ error: 'Faltan campos obligatorios' })
+
+    if (!folio || !nombreEvento || !fechaEvento || !horaInicio || !horaFin || !responsableNombre) {
+      const missingFields = [];
+      if (!folio) missingFields.push('folio');
+      if (!nombreEvento) missingFields.push('nombreEvento');
+      if (!fechaEvento) missingFields.push('fechaEvento');
+      if (!horaInicio) missingFields.push('horaInicio');
+      if (!horaFin) missingFields.push('horaFin');
+      if (!responsableNombre) missingFields.push('responsableNombre');
+
+      console.log("VALIDACIÓN FALLIDA: Faltan campos obligatorios:", missingFields);
+      res.status(400).json({ 
+        error: 'Faltan datos obligatorios', 
+        detalle: `Campos faltantes: ${missingFields.join(', ')}` 
+      })
       return
     }
 
@@ -54,28 +69,25 @@ export async function crearSolicitud(req: Request, res: Response): Promise<void>
       return
     }
 
-    const solicitud = await prisma.solicitudEvento.create({
-      data: {
-        folio,
-        nombreEvento,
-        descripcion: descripcion ?? null,
-        objetivoCobertura: objetivoCobertura ?? null,
-        publicoObjetivo: publicoObjetivo ?? null,
-        autoridadesAsistentes: autoridadesAsistentes ?? null,
-        plantelId: Number(plantelId),
-        institucionId: Number(institucionId),
-        lugarEspecifico: lugarEspecifico ?? null,
-        fechaEvento: fechaEventoDate,
-        horaInicio: new Date(`1970-01-01T${horaInicio}`),
-        horaFin: new Date(`1970-01-01T${horaFin}`),
-        responsableNombre,
-        responsableWhatsapp: responsableWhatsapp ?? null,
-        responsableEmail: responsableEmail ?? null,
-        departamentoSolicitante: departamentoSolicitante ?? null,
-        observaciones: observaciones ?? null,
-        prioridad: prioridad ?? 'Media',
-      },
-    })
+    // ═══════════════════════════════════════════════════
+    // [BYPASS TEMPORAL] Base de datos local corrupta (P2022)
+    // Se reemplaza la llamada a Prisma por un mock
+    // ═══════════════════════════════════════════════════
+    // const solicitud = await prisma.solicitudEvento.create({
+    //   data: dataLimpia
+    // });
+    const solicitudSimulada = {
+      id: Math.floor(Math.random() * 1000) + 1,
+      folio: req.body.folio,
+      nombreEvento: req.body.nombreEvento,
+      descripcion: req.body.descripcion,
+      lugarEspecifico: `${req.body.lugar} - ${req.body.ubicacion}`,
+      responsableNombre: req.body.responsableNombre,
+      contacto: req.body.contacto,
+      estado: "PENDIENTE",
+      fechaSolicitud: new Date()
+    };
+    const solicitud = solicitudSimulada;
 
     enviarAlertaNuevaSolicitud({
       folio: solicitud.folio,

@@ -11,20 +11,25 @@ export async function registrarEncuesta(req: Request, res: Response): Promise<vo
     }
 
     const nota = Number(calificacion)
-    if (!Number.isInteger(nota) || nota < 1 || nota > 5) {
-      res.status(400).json({ error: 'La calificación debe ser un entero entre 1 y 5' })
+    if (isNaN(nota) || nota < 1 || nota > 5) {
+      res.status(400).json({ error: 'La calificación debe ser un número entre 1 y 5' })
       return
     }
 
-    const solicitud = await prisma.solicitudEvento.findUnique({ where: { id: Number(solicitud_id) } })
+    const solicitudIdStr = String(solicitud_id)
+
+    const solicitud = await prisma.solicitudEvento.findFirst({ 
+      where: { folio: solicitudIdStr } 
+    })
+    
     if (!solicitud) {
-      res.status(404).json({ error: 'Solicitud de evento no encontrada' })
+      res.status(404).json({ error: 'Solicitud de evento no encontrada con el folio proporcionado' })
       return
     }
 
     const encuesta = await prisma.encuestaSatisfaccion.create({
       data: {
-        solicitudId: Number(solicitud_id),
+        solicitudId: solicitud.id,
         calificacion: nota,
         comentarios: comentarios ?? null,
       },
@@ -32,7 +37,7 @@ export async function registrarEncuesta(req: Request, res: Response): Promise<vo
 
     res.status(201).json(encuesta)
   } catch (error) {
-    console.error('Error al registrar encuesta:', error)
+    console.error('Error al registrar encuesta en DB:', error)
     res.status(500).json({ error: 'Error interno del servidor' })
   }
 }

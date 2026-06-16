@@ -5,6 +5,16 @@ interface Props {
   onLogin: (usuario: { id: number; correo: string; rol: string }) => void
 }
 
+const COLORS = {
+  primary: '#1e3a8a',
+  secondary: '#dc2626',
+  background: '#f8fafc',
+  surface: '#ffffff',
+  textPrimary: '#1e293b',
+  textSecondary: '#64748b',
+  white: '#ffffff'
+}
+
 export default function Login({ onLogin }: Props) {
   const [correo, setCorreo] = useState('')
   const [password, setPassword] = useState('')
@@ -37,48 +47,53 @@ export default function Login({ onLogin }: Props) {
         alignItems: 'center',
         justifyContent: 'center',
         fontFamily: 'system-ui, sans-serif',
-        background: '#f0f2f5',
+        background: COLORS.background,
       }}
     >
       <form
         onSubmit={handleSubmit}
         style={{
-          background: '#fff',
+          background: COLORS.surface,
           padding: '2.5rem',
-          borderRadius: 12,
-          boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+          borderRadius: 16,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
           width: '100%',
-          maxWidth: 380,
+          maxWidth: 400,
+          border: '1px solid #e2e8f0',
         }}
       >
-        <h1 style={{ margin: '0 0 0.25rem', color: '#1e3a5f' }}>Eventos UMAD / IMM</h1>
-        <p style={{ margin: '0 0 1.5rem', color: '#666', fontSize: '0.9rem' }}>Inicia sesión para continuar</p>
+        <h1 style={{ margin: '0 0 0.25rem', color: COLORS.primary, fontSize: '1.75rem', fontWeight: 800, textAlign: 'center' }}>
+          TigreTrack
+        </h1>
+        <p style={{ margin: '0 0 1.5rem', color: COLORS.textSecondary, fontSize: '0.9rem', textAlign: 'center' }}>
+          Inicia sesión para gestionar tus eventos
+        </p>
 
         {error && (
-          <p style={{ background: '#f8d7da', color: '#721c24', padding: '0.6rem', borderRadius: 6, marginBottom: '1rem' }}>
+          <p style={{ background: '#fee2e2', color: COLORS.secondary, padding: '0.6rem', borderRadius: 6, marginBottom: '1rem', fontSize: '0.85rem', border: '1px solid #fecaca' }}>
             {error}
           </p>
         )}
 
         <div style={{ marginBottom: '1rem' }}>
-          <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: '0.9rem' }}>Correo</label>
+          <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: '0.9rem', color: COLORS.textPrimary }}>Correo</label>
           <input
             type="email"
             value={correo}
             onChange={(e) => setCorreo(e.target.value)}
             required
-            style={{ width: '100%', padding: '0.6rem', borderRadius: 6, border: '1px solid #ccc', fontSize: '0.9rem' }}
+            style={{ width: '100%', padding: '0.7rem', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
           />
         </div>
 
         <div style={{ marginBottom: '1.5rem' }}>
-          <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: '0.9rem' }}>Contraseña</label>
+          <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: '0.9rem', color: COLORS.textPrimary }}>Contraseña</label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            style={{ width: '100%', padding: '0.6rem', borderRadius: 6, border: '1px solid #ccc', fontSize: '0.9rem' }}
+            style={{ width: '100%', padding: '0.7rem', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
           />
         </div>
 
@@ -87,13 +102,15 @@ export default function Login({ onLogin }: Props) {
           disabled={loading}
           style={{
             width: '100%',
-            padding: '0.7rem',
-            background: loading ? '#6c757d' : '#1e3a5f',
-            color: '#fff',
+            padding: '0.8rem',
+            background: loading ? '#94a3b8' : COLORS.primary,
+            color: COLORS.white,
             border: 'none',
             borderRadius: 6,
             fontSize: '1rem',
+            fontWeight: 600,
             cursor: loading ? 'not-allowed' : 'pointer',
+            transition: 'background 0.2s ease',
           }}
         >
           {loading ? 'Ingresando...' : 'Ingresar'}

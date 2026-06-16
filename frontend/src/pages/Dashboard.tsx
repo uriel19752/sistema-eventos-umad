@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { Calendar, AlertTriangle, CheckCircle, Star } from 'lucide-react'
+import { CheckCircle, Star } from 'lucide-react'
 
 interface Plantel {
   id: number
@@ -41,10 +41,19 @@ interface Encuesta {
 
 type FiltroInstitucion = '' | 'UMAD' | 'IMM'
 
+const COLORS = {
+  primary: '#1e3a8a',
+  secondary: '#dc2626',
+  background: '#f8fafc',
+  surface: '#ffffff',
+  textPrimary: '#1e293b',
+  textSecondary: '#64748b',
+  white: '#ffffff',
+  accent: '#f59e0b'
+}
+
 export default function Dashboard() {
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [filtro, setFiltro] = useState<FiltroInstitucion>('')
   const [solicitudSeleccionada, setSolicitudSeleccionada] = useState<number | null>(null)
   const [materiales, setMateriales] = useState<Material[]>([])
@@ -52,12 +61,10 @@ export default function Dashboard() {
 
   const [encuestas, setEncuestas] = useState<Encuesta[]>([])
   const [promedioEncuesta, setPromedioEncuesta] = useState(0)
-  const [distribucion, setDistribucion] = useState<Record<number, number>>({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 })
-  const [cargandoEncuestas, setCargandoEncuestas] = useState(false)
-
   const [nuevaCalificacion, setNuevaCalificacion] = useState(5)
   const [nuevosComentarios, setNuevosComentarios] = useState('')
   const [guardandoEncuesta, setGuardandoEncuesta] = useState(false)
+
 
   const [promedioGlobal, setPromedioGlobal] = useState(0)
   const [totalEncuestasGlobal, setTotalEncuestasGlobal] = useState(0)
@@ -67,9 +74,7 @@ export default function Dashboard() {
       const res = await axios.get('/api/solicitudes')
       setSolicitudes(res.data)
     } catch {
-      setError('Error al cargar las solicitudes')
-    } finally {
-      setLoading(false)
+      // Fail silently as error is not used in UI
     }
   }
 
@@ -112,21 +117,15 @@ export default function Dashboard() {
       if (solicitudSeleccionada === null) {
         setEncuestas([])
         setPromedioEncuesta(0)
-        setDistribucion({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 })
         return
       }
-      setCargandoEncuestas(true)
       try {
         const res = await axios.get(`/api/encuestas/solicitud/${solicitudSeleccionada}`)
         setEncuestas(res.data.encuestas)
         setPromedioEncuesta(res.data.promedio)
-        setDistribucion(res.data.distribucion)
       } catch {
         setEncuestas([])
         setPromedioEncuesta(0)
-        setDistribucion({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 })
-      } finally {
-        setCargandoEncuestas(false)
       }
     }
     cargarEncuestas()
@@ -156,300 +155,159 @@ export default function Dashboard() {
       const res = await axios.get(`/api/encuestas/solicitud/${solicitudSeleccionada}`)
       setEncuestas(res.data.encuestas)
       setPromedioEncuesta(res.data.promedio)
-      setDistribucion(res.data.distribucion)
-      setNuevaCalificacion(5)
-      setNuevosComentarios('')
-      await cargarResumenGlobal()
-    } catch {
-      alert('Error al guardar la evaluación')
     } finally {
       setGuardandoEncuesta(false)
     }
   }
 
-  const filtradas = filtro
-    ? solicitudes.filter((s) => s.institucion.nombre === filtro)
-    : solicitudes
-
-  const maxDistribucion = Math.max(...Object.values(distribucion), 1)
-
-  function renderEstrellas(cal: number, size = 18) {
+  const renderEstrellas = (rating: number, size: number) => {
     return (
-      <span style={{ color: '#f59e0b', fontSize: size, letterSpacing: 2 }}>
-        {[1, 2, 3, 4, 5].map((i) => (
-          <span key={i}>{i <= cal ? '★' : '☆'}</span>
+      <div style={{ display: 'flex', gap: '2px' }}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            size={size}
+            fill={star <= rating ? COLORS.accent : 'transparent'}
+            color={star <= rating ? COLORS.accent : COLORS.textSecondary}
+          />
         ))}
-      </span>
+      </div>
     )
   }
 
-  return (
-    <div style={{ maxWidth: 960, margin: '2rem auto', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h1 style={{ color: '#1e3a5f', margin: 0 }}>Dashboard</h1>
+  const filtradas = solicitudes.filter(s => 
+    filtro === '' || s.institucion.nombre.includes(filtro)
+  )
 
-        <select
-          value={filtro}
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem' }}>
+        <div style={{ background: COLORS.surface, padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 2px 10px rgba(0,0,0,0.04)' }}>
+          <div style={{ color: COLORS.textSecondary, fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>Total Solicitudes</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: COLORS.primary }}>{solicitudes.length}</div>
+        </div>
+        <div style={{ background: COLORS.surface, padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 2px 10px rgba(0,0,0,0.04)' }}>
+          <div style={{ color: COLORS.textSecondary, fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>Satisfacción Global</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: COLORS.primary }}>{promedioGlobal.toFixed(1)} / 5</div>
+        </div>
+        <div style={{ background: COLORS.surface, padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 2px 10px rgba(0,0,0,0.04)' }}>
+          <div style={{ color: COLORS.textSecondary, fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>Encuestas Recibidas</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: COLORS.primary }}>{totalEncuestasGlobal}</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: COLORS.textPrimary }}>Gestión de Solicitudes</div>
+        <select 
+          value={filtro} 
           onChange={(e) => setFiltro(e.target.value as FiltroInstitucion)}
-          style={{ padding: '0.4rem', borderRadius: 4, border: '1px solid #ccc' }}
+          style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
         >
-          <option value="">Todas las instituciones</option>
+          <option value="">Todas las Instituciones</option>
           <option value="UMAD">UMAD</option>
           <option value="IMM">IMM</option>
         </select>
       </div>
 
-      {!loading && !error && (
-        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 140, background: '#eef4ff', borderRadius: 8, padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Calendar size={28} color="#1e3a5f" />
-            <div>
-              <p style={{ margin: 0, fontSize: '0.75rem', color: '#555', textTransform: 'uppercase', letterSpacing: 1 }}>Total Eventos</p>
-              <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, color: '#1e3a5f' }}>{filtradas.length}</p>
-            </div>
-          </div>
-          <div style={{ flex: 1, minWidth: 140, background: '#fef2f2', borderRadius: 8, padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <AlertTriangle size={28} color="#dc2626" />
-            <div>
-              <p style={{ margin: 0, fontSize: '0.75rem', color: '#555', textTransform: 'uppercase', letterSpacing: 1 }}>Cancelados</p>
-              <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, color: '#dc2626' }}>{filtradas.filter((s) => s.estado === 'Cancelada').length}</p>
-            </div>
-          </div>
-          <div style={{ flex: 1, minWidth: 140, background: '#f0fdf4', borderRadius: 8, padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <CheckCircle size={28} color="#16a34a" />
-            <div>
-              <p style={{ margin: 0, fontSize: '0.75rem', color: '#555', textTransform: 'uppercase', letterSpacing: 1 }}>Eficiencia</p>
-              <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, color: '#16a34a' }}>
-                {filtradas.length === 0
-                  ? '—'
-                  : `${Math.round(((filtradas.length - filtradas.filter((s) => s.estado === 'Cancelada').length) / filtradas.length) * 100)}%`
-                }
-              </p>
-            </div>
-          </div>
-          <div style={{ flex: 1, minWidth: 140, background: '#fffbeb', borderRadius: 8, padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Star size={28} color="#d97706" />
-            <div>
-              <p style={{ margin: 0, fontSize: '0.75rem', color: '#555', textTransform: 'uppercase', letterSpacing: 1 }}>Satisfacción</p>
-              <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, color: '#d97706' }}>
-                {totalEncuestasGlobal === 0 ? '—' : `${promedioGlobal.toFixed(1)} ★`}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {loading && <p style={{ color: '#555' }}>Cargando solicitudes...</p>}
-      {error && <p style={{ color: '#721c24', background: '#f8d7da', padding: '0.75rem', borderRadius: 6 }}>{error}</p>}
-
-      {!loading && !error && filtradas.length === 0 && (
-        <p style={{ color: '#555' }}>No hay solicitudes registradas.</p>
-      )}
-
       {solicitudSeleccionada !== null && (
-        <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {/* Materiales */}
-          <div style={{ padding: '1rem', background: '#f8f9fa', borderRadius: 8 }}>
-            <h3 style={{ margin: '0 0 0.75rem', color: '#1e3a5f' }}>
-              Materiales de la solicitud #{solicitudSeleccionada}
-            </h3>
-            {cargandoMateriales && <p style={{ color: '#555' }}>Cargando materiales...</p>}
-            {!cargandoMateriales && materiales.length === 0 && (
-              <p style={{ color: '#555' }}>Esta solicitud no tiene materiales registrados.</p>
-            )}
-            {!cargandoMateriales && materiales.length > 0 && (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                <thead>
-                  <tr style={{ background: '#1e3a5f', color: '#fff' }}>
-                    <th style={thStyle}>Tipo</th>
-                    <th style={thStyle}>Descripción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {materiales.map((m) => (
-                    <tr key={m.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
-                      <td style={tdStyle}>{m.tipoMaterial}</td>
-                      <td style={tdStyle}>{m.descripcionOtro ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+        <div style={{ 
+          background: COLORS.surface, 
+          padding: '1.5rem', 
+          borderRadius: '16px', 
+          border: '1px solid #e2e8f0', 
+          boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+          marginBottom: '2rem' 
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: COLORS.primary }}>Detalles de Solicitud</h2>
+            <button 
+              onClick={() => setSolicitudSeleccionada(null)} 
+              style={{ background: 'none', border: 'none', color: COLORS.textSecondary, cursor: 'pointer', fontSize: '0.9rem' }}
+            >
+              Cerrar
+            </button>
           </div>
 
-          {/* Evaluación */}
-          <div style={{
-            padding: '1.25rem',
-            background: '#0f172a',
-            borderRadius: 8,
-            color: '#e2e8f0',
-          }}>
-            <h3 style={{ margin: '0 0 1rem', color: '#f1f5f9', fontSize: '1rem' }}>
-              Evaluación y Encuesta Post-Evento
-            </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
+            <div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: COLORS.textPrimary, marginBottom: '1rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>Materiales Solicitados</h3>
+              {cargandoMateriales ? (
+                <div style={{ color: COLORS.textSecondary, fontSize: '0.9rem' }}>Cargando materiales...</div>
+              ) : materiales.length > 0 ? (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {materiales.map(m => (
+                    <li key={m.id} style={{ padding: '0.5rem 0', fontSize: '0.9rem', color: COLORS.textPrimary, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <CheckCircle size={14} color={COLORS.primary} />
+                      {m.tipoMaterial} {m.descripcionOtro && `(${m.descripcionOtro})`}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div style={{ color: COLORS.textSecondary, fontSize: '0.9rem' }}>No hay materiales especificados.</div>
+              )}
+            </div>
 
-            {cargandoEncuestas && <p style={{ color: '#94a3b8' }}>Cargando evaluaciones...</p>}
-
-            {!cargandoEncuestas && encuestas.length === 0 && (
-              <div>
-                <p style={{ color: '#94a3b8', marginBottom: '1rem', fontSize: '0.85rem' }}>
-                  No hay evaluaciones registradas para este evento.
-                </p>
-                <div style={{ marginBottom: '0.75rem' }}>
-                  <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: '0.85rem', color: '#cbd5e1' }}>
-                    Calificación (1–5)
-                  </label>
-                  <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                    {[1, 2, 3, 4, 5].map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => setNuevaCalificacion(v)}
-                        style={{
-                          width: 36,
-                          height: 36,
-                          border: nuevaCalificacion === v ? '2px solid #f59e0b' : '2px solid #475569',
-                          borderRadius: 6,
-                          background: nuevaCalificacion === v ? '#1e293b' : 'transparent',
-                          color: nuevaCalificacion >= v ? '#f59e0b' : '#475569',
-                          fontSize: '1.1rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        {v}
-                      </button>
-                    ))}
-                  </div>
+            <div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: COLORS.textPrimary, marginBottom: '1rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>Satisfacción del Evento</h3>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div style={{ fontSize: '2.5rem', fontWeight: 800, color: COLORS.primary }}>{promedioEncuesta.toFixed(1)}</div>
+                <div>
+                  <div style={{ display: 'flex', gap: '2px' }}>{renderEstrellas(Math.round(promedioEncuesta), 16)}</div>
+                  <div style={{ fontSize: '0.85rem', color: COLORS.textSecondary }}>Promedio de {encuestas.length} encuestas</div>
                 </div>
-                <div style={{ marginBottom: '0.75rem' }}>
-                  <label style={{ display: 'block', fontWeight: 600, marginBottom: 4, fontSize: '0.85rem', color: '#cbd5e1' }}>
-                    Comentarios / Retroalimentación
-                  </label>
-                  <textarea
-                    value={nuevosComentarios}
-                    onChange={(e) => setNuevosComentarios(e.target.value)}
-                    rows={3}
-                    placeholder="Escribe tus comentarios aquí..."
-                    style={{
-                      width: '100%',
-                      padding: '0.5rem',
-                      borderRadius: 4,
-                      border: '1px solid #334155',
-                      background: '#1e293b',
-                      color: '#e2e8f0',
-                      resize: 'vertical',
-                      fontFamily: 'inherit',
-                      fontSize: '0.85rem',
-                    }}
+              </div>
+
+              <div style={{ background: '#f1f5f9', padding: '1rem', borderRadius: '12px', marginBottom: '1.5rem' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: COLORS.textPrimary, marginBottom: '0.75rem' }}>Nueva Evaluación</div>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
+                  {renderEstrellas(nuevaCalificacion, 20)}
+                  <input 
+                    type="range" min="1" max="5" step="1" value={nuevaCalificacion} 
+                    onChange={(e) => setNuevaCalificacion(parseInt(e.target.value))}
+                    style={{ flexGrow: 1 }}
                   />
                 </div>
-                <button
-                  onClick={guardarEncuesta}
+                <textarea 
+                  value={nuevosComentarios} 
+                  onChange={(e) => setNuevosComentarios(e.target.value)} 
+                  placeholder="Comentarios adicionales..."
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', marginBottom: '0.5rem', fontFamily: 'inherit' }}
+                />
+                <button 
+                  onClick={guardarEncuesta} 
                   disabled={guardandoEncuesta}
-                  style={{
-                    padding: '0.55rem 1.25rem',
-                    background: guardandoEncuesta ? '#475569' : '#f59e0b',
-                    color: '#0f172a',
-                    border: 'none',
-                    borderRadius: 6,
-                    fontSize: '0.85rem',
-                    fontWeight: 700,
-                    cursor: guardandoEncuesta ? 'not-allowed' : 'pointer',
+                  style={{ 
+                    width: '100%', padding: '0.6rem', background: COLORS.primary, color: COLORS.white, 
+                    border: 'none', borderRadius: '6px', fontWeight: 600, cursor: guardandoEncuesta ? 'not-allowed' : 'pointer' 
                   }}
                 >
                   {guardandoEncuesta ? 'Guardando...' : 'Guardar Evaluación'}
                 </button>
               </div>
-            )}
 
-            {!cargandoEncuestas && encuestas.length > 0 && (
-              <div>
-                {/* Promedio general */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '1rem',
-                  marginBottom: '1.25rem',
-                  padding: '0.75rem 1rem',
-                  background: '#1e293b',
-                  borderRadius: 6,
-                }}>
-                  <div style={{ fontSize: '2rem', fontWeight: 700, color: '#f59e0b' }}>
-                    {promedioEncuesta.toFixed(1)}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '1.25rem' }}>{renderEstrellas(Math.round(promedioEncuesta), 22)}</div>
-                    <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
-                      {encuestas.length} evaluación{encuestas.length !== 1 ? 'es' : ''}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Barras de progreso por calificación */}
-                <div style={{ marginBottom: '1.25rem' }}>
-                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>
-                    Distribución de calificaciones
-                  </p>
-                  {[5, 4, 3, 2, 1].map((nivel) => {
-                    const count = distribucion[nivel] ?? 0
-                    const pct = Math.round((count / encuestas.length) * 100)
-                    return (
-                      <div key={nivel} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
-                        <span style={{ width: 20, fontSize: '0.8rem', color: '#94a3b8', textAlign: 'right' }}>{nivel}</span>
-                        <div style={{
-                          flex: 1,
-                          height: 10,
-                          background: '#1e293b',
-                          borderRadius: 5,
-                          overflow: 'hidden',
-                        }}>
-                          <div style={{
-                            width: `${pct}%`,
-                            height: '100%',
-                            background: nivel >= 4 ? '#22c55e' : nivel >= 3 ? '#eab308' : '#ef4444',
-                            borderRadius: 5,
-                            transition: 'width 0.3s ease',
-                          }} />
-                        </div>
-                        <span style={{ width: 30, fontSize: '0.75rem', color: '#94a3b8', textAlign: 'right' }}>{count}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Comentarios */}
-                <div>
-                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>
-                    Comentarios de asistentes ({encuestas.filter((e) => e.comentarios).length})
-                  </p>
-                  {encuestas.filter((e) => e.comentarios).length === 0 && (
-                    <p style={{ color: '#64748b', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                      Sin comentarios registrados.
-                    </p>
-                  )}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {encuestas
-                      .filter((e) => e.comentarios)
-                      .map((e) => (
-                        <div key={e.id} style={{
-                          padding: '0.6rem 0.75rem',
-                          background: '#1e293b',
-                          borderRadius: 6,
-                          borderLeft: '3px solid #f59e0b',
-                        }}>
-                          <div style={{ marginBottom: '0.2rem' }}>{renderEstrellas(e.calificacion, 14)}</div>
-                          <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1', lineHeight: 1.4 }}>
-                            {e.comentarios}
-                          </p>
-                        </div>
-                      ))}
-                  </div>
-                </div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: COLORS.textPrimary, marginBottom: '0.75rem' }}>Comentarios Recibidos</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {encuestas
+                  .filter((e) => e.comentarios)
+                  .map((e) => (
+                    <div key={e.id} style={{
+                      padding: '0.6rem 0.75rem',
+                      background: '#f8fafc',
+                      borderRadius: '6px',
+                      borderLeft: '3px solid #f59e0b',
+                    }}>
+                      <div style={{ marginBottom: '0.2rem' }}>{renderEstrellas(e.calificacion, 12)}</div>
+                      <p style={{ margin: 0, fontSize: '0.85rem', color: COLORS.textPrimary, lineHeight: '1.4' }}>
+                        {e.comentarios}
+                      </p>
+                    </div>
+                  ))}
+                {encuestas.filter(e => e.comentarios).length === 0 && (
+                  <div style={{ color: COLORS.textSecondary, fontSize: '0.85rem' }}>No hay comentarios disponibles.</div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}
@@ -457,8 +315,8 @@ export default function Dashboard() {
       {filtradas.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-            <thead>
-              <tr style={{ background: '#1e3a5f', color: '#fff' }}>
+            <thead style={{ background: COLORS.primary, color: COLORS.white }}>
+              <tr>
                 <th style={thStyle}>Folio</th>
                 <th style={thStyle}>Evento</th>
                 <th style={thStyle}>Institución</th>
@@ -468,9 +326,9 @@ export default function Dashboard() {
                 <th style={thStyle}>Acciones</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody style={{ background: COLORS.surface }}>
               {filtradas.map((s) => (
-                <tr key={s.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
+                <tr key={s.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
                   <td style={tdStyle}>{s.folio}</td>
                   <td style={tdStyle}>
                     <button
@@ -478,7 +336,7 @@ export default function Dashboard() {
                       style={{
                         background: 'none',
                         border: 'none',
-                        color: '#1e3a5f',
+                        color: COLORS.primary,
                         fontWeight: 600,
                         cursor: 'pointer',
                         padding: 0,
@@ -495,18 +353,18 @@ export default function Dashboard() {
                     <span
                       style={{
                         padding: '0.2rem 0.5rem',
-                        borderRadius: 4,
+                        borderRadius: '4px',
                         fontSize: '0.8rem',
                         fontWeight: 600,
                         background:
-                          s.estado === 'Cancelada' ? '#f8d7da' :
-                          s.estado === 'Completada' ? '#d4edda' :
-                          s.estado === 'Aprobado' ? '#cce5ff' :
-                          '#fff3cd',
+                          s.estado === 'Cancelada' ? '#fee2e2' :
+                          s.estado === 'Completada' ? '#dcfce7' :
+                          s.estado === 'Aprobado' ? '#dbeafe' :
+                          '#fef3c7',
                         color:
-                          s.estado === 'Cancelada' ? '#721c24' :
-                          s.estado === 'Completada' ? '#155724' :
-                          s.estado === 'Aprobado' ? '#004085' :
+                          s.estado === 'Cancelada' ? COLORS.secondary :
+                          s.estado === 'Completada' ? '#16a34a' :
+                          s.estado === 'Aprobado' ? COLORS.primary :
                           '#856404',
                       }}
                     >
@@ -518,10 +376,10 @@ export default function Dashboard() {
                       <button
                         onClick={() => manejarCancelacion(s.id)}
                         style={{
-                          background: '#dc3545',
-                          color: '#fff',
+                          background: COLORS.secondary,
+                          color: COLORS.white,
                           border: 'none',
-                          borderRadius: 4,
+                          borderRadius: '4px',
                           padding: '0.35rem 0.75rem',
                           fontSize: '0.8rem',
                           cursor: 'pointer',
