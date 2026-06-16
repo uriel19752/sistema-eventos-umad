@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum Prioridad {
+  Alta
+  Media
+  Baja
+
+  @@map("prioridad")
+}
+
+enum Estado {
+  Pendiente
+  Aprobado
+  Completada
+  Cancelada
+
+  @@map("estado")
+}
+
+enum Rol {
+  ADMIN
+  USER
+
+  @@map("rol")
+}
+
+enum TipoMaterial {
+  Fotografia
+  Nota_Web
+  Banner
+  Otro
+
+  @@map("tipo_material")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MODELS
+// ──────────────────────────────────────────────────────────────────────────────
+
+model Usuario {
+  id       Int    @id @default(autoincrement())
+  correo   String @unique @db.VarChar(255)
+  password String @db.VarChar(255)
+  rol      Rol    @default(USER)
+
+  @@map("usuarios")
+}
+
+model Plantel {
+  id   Int    @id @default(autoincrement())
+  nombre String @db.VarChar(255)
+
+  solicitudEventos SolicitudEvento[]
+
+  @@map("planteles")
+}
+
+model Institucion {
+  id   Int    @id @default(autoincrement())
+  nombre String @db.VarChar(255)
+
+  solicitudEventos SolicitudEvento[]
+
+  @@map("instituciones")
+}
+
+model Proveedor {
+  id           Int     @id @default(autoincrement())
+  nombre       String  @db.VarChar(255)
+  especialidad String? @db.VarChar(255)
+  email        String? @db.VarChar(255)
+  telefono     String? @db.VarChar(50)
+  activo       Boolean @default(true)
+
+  asignacionProveedores AsignacionProveedor[]
+
+  @@map("proveedores")
+}
+
+model SolicitudEvento {
+  id                    Int         @id @default(autoincrement())
+  folio                 String      @db.VarChar(50)
+  nombreEvento          String      @map("nombre_evento") @db.VarChar(255)
+  descripcion           String?     @db.Text
+  objetivoCobertura     String?     @map("objetivo_cobertura") @db.Text
+  publicoObjetivo       String?     @map("publico_objetivo") @db.Text
+  autoridadesAsistentes String?     @map("autoridades_asistentes") @db.Text
+  plantelId             Int         @map("plantel_id")
+  institucionId         Int         @map("institucion_id")
+  lugarEspecifico       String?     @map("lugar_especifico") @db.VarChar(255)
+  fechaEvento           DateTime    @map("fecha_evento") @db.Date
+  horaInicio            DateTime    @map("hora_inicio") @db.Time
+  horaFin               DateTime    @map("hora_fin") @db.Time
+  fechaSolicitud        DateTime    @map("fecha_solicitud") @default(now()) @db.Timestamp
+  responsableNombre     String      @map("responsable_nombre") @db.VarChar(255)
+  responsableWhatsapp   String?     @map("responsable_whatsapp") @db.VarChar(20)
+  responsableEmail      String?     @map("responsable_email") @db.VarChar(255)
+  departamentoSolicitante String?  @map("departamento_solicitante") @db.VarChar(255)
+  areaDepartamento      String?    @map("area_departamento") @db.VarChar(255)
+  responsableEvento     String?    @map("responsable_evento") @db.VarChar(255)
+  whatsappCorreo        String?    @map("whatsapp_correo") @db.VarChar(255)
+  horarioInicioFin      String?    @map("horario_inicio_fin") @db.VarChar(100)
+  materialesRequeridos  String?    @map("materiales_requeridos") @db.Text
+  observaciones         String?     @db.Text
+  prioridad             Prioridad   @default(Media)
+  estado                Estado      @default(Pendiente)
+
+  plantel     Plantel     @relation(fields: [plantelId], references: [id])
+  institucion Institucion @relation(fields: [institucionId], references: [id])
+
+  materialSolicitado    MaterialSolicitado[]
+  asignacionProveedores AsignacionProveedor[]
+  encuestaSatisfaccion  EncuestaSatisfaccion[]
+  auditoriaCancelacion  AuditoriaCancelacion[]
+
+  @@map("solicitudes_eventos")
+}
+
+model MaterialSolicitado {
+  id              Int          @id @default(autoincrement())
+  solicitudId     Int          @map("solicitud_id")
+  tipoMaterial    TipoMaterial @map("tipo_material")
+  descripcionOtro String?      @map("descripcion_otro") @db.Text
+
+  solicitud SolicitudEvento @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+
+  @@map("materiales_solicitados")
+}
+
+model AsignacionProveedor {
+  id          Int @id @default(autoincrement())
+  solicitudId Int @map("solicitud_id")
+  proveedorId Int @map("proveedor_id")
+
+  solicitud SolicitudEvento @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  proveedor Proveedor       @relation(fields: [proveedorId], references: [id])
+
+  @@map("asignacion_proveedores")
+}
+
+model EncuestaSatisfaccion {
+  id             Int      @id @default(autoincrement())
+  solicitudId    Int      @map("solicitud_id")
+  calificacion   Int      @map("calificacion")
+  comentarios    String?  @db.Text
+  fechaRespuesta DateTime @map("fecha_respuesta") @default(now()) @db.Timestamp
+
+  solicitud SolicitudEvento @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+
+  @@map("encuestas_satisfaccion")
+}
+
+model AuditoriaCancelacion {
+  id               Int      @id @default(autoincrement())
+  solicitudId      Int      @map("solicitud_id")
+  estadoAnterior   Estado   @map("estado_anterior")
+  fechaCancelacion DateTime @map("fecha_cancelacion") @default(now()) @db.Timestamp
+  motivo           String?  @db.Text
+  tardia           Boolean  @default(false)
+
+  solicitud SolicitudEvento @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+
+  @@map("auditoria_cancelaciones")
+}
