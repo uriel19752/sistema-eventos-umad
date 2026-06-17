@@ -37,6 +37,7 @@ export default function NuevaSolicitud() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [idSolicitudCreada, setIdSolicitudCreada] = useState<number | null>(null)
+  const [debeMostrarQRConfirmado, setDebeMostrarQRConfirmado] = useState(false)
   const [cargandoCatalogos, setCargandoCatalogos] = useState(true)
   const qrRef = useRef<HTMLDivElement>(null)
 
@@ -111,7 +112,9 @@ export default function NuevaSolicitud() {
         materiales,
         generarQR
       })
+      const debeMostrar = generarQR
       setIdSolicitudCreada(res.data.id)
+      setDebeMostrarQRConfirmado(debeMostrar)
       resetForm()
     } catch (err) {
       const msg = axios.isAxiosError(err) ? err.response?.data?.error ?? 'Error al enviar' : 'Error de conexión'
@@ -130,13 +133,15 @@ export default function NuevaSolicitud() {
   }
 
   function descargarQR() {
-    const canvas = qrRef.current?.querySelector('canvas')
-    if (!canvas) return
-    const url = canvas.toDataURL('image/png')
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `qr-encuesta-${idSolicitudCreada}.png`
-    a.click()
+    setTimeout(() => {
+      const canvas = qrRef.current?.querySelector('canvas')
+      if (!canvas) return
+      const url = canvas.toDataURL('image/png')
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `qr-encuesta-${idSolicitudCreada}.png`
+      a.click()
+    }, 100)
   }
 
   const COLORS = {
@@ -393,7 +398,7 @@ export default function NuevaSolicitud() {
             <p style={{ margin: '0 0 1.5rem', color: COLORS.textSecondary, fontSize: '0.9rem' }}>
               Su solicitud ha sido enviada exitosamente al sistema TigreTrack.
             </p>
-            {generarQR && (
+            {debeMostrarQRConfirmado && (
               <div style={{ background: '#f8fafc', padding: '1.5rem', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '1.5rem' }}>
                 <div ref={qrRef} style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
                   <QRCodeCanvas value={qrUrl} size={180} />
@@ -420,7 +425,7 @@ export default function NuevaSolicitud() {
               </div>
             )}
             <button
-              onClick={() => setIdSolicitudCreada(null)}
+          onClick={() => { setIdSolicitudCreada(null); setDebeMostrarQRConfirmado(false) }}
               style={{
                 background: '#e2e8f0',
                 color: COLORS.textPrimary,

@@ -69,33 +69,46 @@ export async function crearSolicitud(req: Request, res: Response): Promise<void>
       return
     }
 
-    // ═══════════════════════════════════════════════════
-    // [BYPASS TEMPORAL] Base de datos local corrupta (P2022)
-    // Se reemplaza la llamada a Prisma por un mock
-    // ═══════════════════════════════════════════════════
-    // const solicitud = await prisma.solicitudEvento.create({
-    //   data: dataLimpia
-    // });
-    const solicitudSimulada = {
-      id: Math.floor(Math.random() * 1000) + 1,
-      folio: req.body.folio,
-      nombreEvento: req.body.nombreEvento,
-      descripcion: req.body.descripcion,
-      lugarEspecifico: `${req.body.lugar} - ${req.body.ubicacion}`,
-      responsableNombre: req.body.responsableNombre,
-      contacto: req.body.contacto,
-      estado: "PENDIENTE",
-      fechaSolicitud: new Date()
-    };
-    const solicitud = solicitudSimulada;
+    const solicitud = await prisma.solicitudEvento.create({
+      data: {
+        folio,
+        nombreEvento,
+        descripcion: descripcion || null,
+        objetivoCobertura: objetivo || null,
+        publicoObjetivo: publico || null,
+        autoridadesAsistentes: autoridades || null,
+        plantelId: plantelId ? Number(plantelId) : null,
+        institucionId: institucionId ? Number(institucionId) : null,
+        lugarEspecifico: lugar ? `${lugar}${ubicacion ? ' - ' + ubicacion : ''}` : null,
+        fechaEvento: new Date(fechaEvento),
+        horarioInicioFin: `${horaInicio} - ${horaFin}`,
+        horaInicio: new Date(`1970-01-01T${horaInicio}:00`),
+        horaFin: new Date(`1970-01-01T${horaFin}:00`),
+        responsableEvento: responsableNombre || null,
+        whatsappCorreo: contacto || null,
+        areaDepartamento: area || null,
+        materialesRequeridos: (() => {
+          const lista = []
+          if (req.body.materiales?.fotografias) lista.push('Fotografías')
+          if (req.body.materiales?.notaWeb) lista.push('Nota Web')
+          if (req.body.materiales?.banners) lista.push('Banners')
+          if (req.body.materiales?.otro) lista.push(req.body.materiales.otro)
+          return lista.join(', ') || null
+        })(),
+      }
+    })
 
-    enviarAlertaNuevaSolicitud({
-      folio: solicitud.folio,
-      nombreEvento: solicitud.nombreEvento,
-      fechaEvento: formatDate(solicitud.fechaEvento),
-      horaInicio: formatTime(solicitud.horaInicio),
-      responsableNombre: solicitud.responsableNombre,
-    }).catch((e) => console.error('Error al enviar correo:', e))
+    try {
+      enviarAlertaNuevaSolicitud({
+        folio: solicitud.folio,
+        nombreEvento: solicitud.nombreEvento,
+        fechaEvento: formatDate(solicitud.fechaEvento),
+        horaInicio: formatTime(solicitud.horaInicio),
+        responsableNombre: solicitud.responsableNombre,
+      }).catch((e) => console.error('Error al enviar correo:', e))
+    } catch (_e) {
+      console.error('Error al enviar alerta de nueva solicitud:', _e)
+    }
 
     res.status(201).json(solicitud)
   } catch (error) {
@@ -107,7 +120,31 @@ export async function crearSolicitud(req: Request, res: Response): Promise<void>
 export async function obtenerSolicitudes(_req: Request, res: Response): Promise<void> {
   try {
     const solicitudes = await prisma.solicitudEvento.findMany({
-      include: {
+      select: {
+        id: true,
+        folio: true,
+        nombreEvento: true,
+        descripcion: true,
+        objetivoCobertura: true,
+        publicoObjetivo: true,
+        autoridadesAsistentes: true,
+        lugarEspecifico: true,
+        fechaEvento: true,
+        horaInicio: true,
+        horaFin: true,
+        horarioInicioFin: true,
+        responsableNombre: true,
+        responsableEvento: true,
+        contacto: true,
+        whatsappCorreo: true,
+        departamentoSolicitante: true,
+        areaDepartamento: true,
+        materialesRequeridos: true,
+        prioridad: true,
+        estado: true,
+        fechaSolicitud: true,
+        plantelId: true,
+        institucionId: true,
         plantel: true,
         institucion: true,
       },
