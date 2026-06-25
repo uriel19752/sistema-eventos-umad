@@ -2,7 +2,7 @@ import { useState } from 'react'
 import axios from 'axios'
 
 interface Props {
-  onLogin: (usuario: { id: number; correo: string; rol: string }) => void
+  onLogin: (usuario: { id: number; correo: string; rol: string; token: string }) => void
 }
 
 const COLORS = {

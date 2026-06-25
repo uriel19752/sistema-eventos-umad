@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express'
 import bcrypt from 'bcrypt'
 import prisma from '../config/db.js'
+import { generarToken } from '../middleware/auth.middleware.js'
 
 export async function login(req: Request, res: Response): Promise<void> {
   try {
@@ -25,7 +26,9 @@ export async function login(req: Request, res: Response): Promise<void> {
       return
     }
 
-    res.json({ id: usuario.id, correo: usuario.correo, rol: usuario.rol })
+    const token = generarToken({ id: usuario.id, correo: usuario.correo, rol: usuario.rol })
+
+    res.json({ id: usuario.id, correo: usuario.correo, rol: usuario.rol, token })
   } catch (error) {
     console.error('Error en login:', error)
     res.status(500).json({ error: 'Error interno del servidor' })

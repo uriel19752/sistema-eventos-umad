@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import { QRCodeCanvas } from 'qrcode.react'
+import umadLogo from '../assets/logos/umad_logo.png'
+import prepaUmadLogo from '../assets/logos/prepa_umad_logo.png'
+import immLogo from '../assets/logos/imm_logo.png'
 
 interface MaterialesForm {
   fotografias: boolean
@@ -16,6 +19,7 @@ export default function NuevaSolicitud() {
   const [fechaEvento, setFechaEvento] = useState('')
   const [horaInicio, setHoraInicio] = useState('')
   const [horaFin, setHoraFin] = useState('')
+  const [horaMontaje, setHoraMontaje] = useState('')
   const [responsable, setResponsable] = useState('')
   const [area, setArea] = useState('')
   const [contacto, setContacto] = useState('')
@@ -74,6 +78,24 @@ export default function NuevaSolicitud() {
       return
     }
 
+    console.log('[VALIDACION HORAS]', {
+      horaMontaje,
+      horaInicio,
+      horaFin
+    })
+
+    if (horaFin <= horaInicio) {
+      alert('La hora de finalización debe ser posterior a la hora de inicio.')
+      setLoading(false)
+      return
+    }
+
+    if (horaMontaje && horaMontaje > horaInicio) {
+      alert('La hora de montaje debe ser anterior o igual a la hora de inicio.')
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     try {
       const folio = `EVT-${Date.now()}`
@@ -100,10 +122,12 @@ export default function NuevaSolicitud() {
         fechaEvento,
         horaInicio: normalizeTime(horaInicio),
         horaFin: normalizeTime(horaFin),
+        horaMontaje: normalizeTime(horaMontaje),
         responsableNombre: responsable,
         area,
         contacto,
         lugar,
+        lugarSeleccionado: lugar,
         ubicacion,
         publico,
         autoridades,
@@ -126,7 +150,7 @@ export default function NuevaSolicitud() {
 
   function resetForm() {
     setNombreEvento(''); setInstitucionId('1'); setPlantelId('1'); setFechaEvento('');
-    setHoraInicio(''); setHoraFin(''); setResponsable(''); setArea(''); setContacto('');
+    setHoraInicio(''); setHoraFin(''); setHoraMontaje(''); setResponsable(''); setArea(''); setContacto('');
     setLugar('UMAD'); setUbicacion(''); setPublico(''); setAutoridades(''); setDescripcion('');
     setObjetivo(''); setGenerarQR(false);
     setMateriales({ fotografias: false, notaWeb: false, banners: false, otro: '' });
@@ -186,6 +210,29 @@ export default function NuevaSolicitud() {
   return (
     <div style={{ maxWidth: '900px', margin: '3rem auto', padding: '0 1.5rem', fontFamily: 'system-ui, sans-serif', backgroundColor: COLORS.background, minHeight: '100vh' }}>
       <header style={{ textAlign: 'center', marginBottom: '3rem' }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: '3rem',
+          flexWrap: 'wrap',
+          background: '#ffffff',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.04)',
+          padding: '1rem 2rem',
+          marginBottom: '1.5rem'
+        }}>
+          <div style={{ width: '180px', height: '100px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <img src={umadLogo} alt="UMAD" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+          </div>
+          <div style={{ width: '180px', height: '100px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <img src={prepaUmadLogo} alt="Prepa UMAD" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+          </div>
+          <div style={{ width: '180px', height: '100px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <img src={immLogo} alt="IMM" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+          </div>
+        </div>
         <h1 style={{ color: COLORS.primary, fontSize: '2rem', fontWeight: 800, margin: '0 0 0.5rem' }}>TigreTrack — Solicitud de Cobertura de Evento</h1>
         <p style={{ color: COLORS.textSecondary, fontSize: '1.1rem', fontWeight: 500 }}>Área de Comunicación y Marketing Digital — UMAD</p>
       </header>
@@ -240,6 +287,13 @@ export default function NuevaSolicitud() {
                     <input type="time" value={horaFin} onChange={e => setHoraFin(e.target.value)} required style={inputStyle} />
                   </div>
                 </div>
+              </div>
+              <div style={{ gridColumn: '1 / -1', marginTop: '0.5rem' }}>
+                <label style={labelStyle}>Hora de requerimiento del lugar (Montaje / Preparativos)</label>
+                <input type="time" value={horaMontaje} onChange={e => setHoraMontaje(e.target.value)} required style={inputStyle} />
+                <p style={{ margin: '8px 0 0', fontSize: '0.85rem', color: COLORS.textSecondary, fontStyle: 'italic', lineHeight: '1.4' }}>
+                  ⚠️ <strong>Nota de Logística:</strong> La "Hora de Inicio/Término" superior corresponde al programa oficial del evento. Este campo es para especificar desde qué momento requiere el acceso al espacio para preparativos, decoración o pruebas técnicas.
+                </p>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem' }}>
                 <div>

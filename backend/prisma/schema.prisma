@@ -54,6 +54,8 @@ model Usuario {
   password String @db.VarChar(255)
   rol      Rol    @default(USER)
 
+  solicitudes SolicitudEvento[]
+
   @@map("usuarios")
 }
 
@@ -103,6 +105,7 @@ model SolicitudEvento {
   fechaEvento           DateTime    @map("fecha_evento") @db.Date
   horaInicio            DateTime    @map("hora_inicio") @db.Time
   horaFin               DateTime    @map("hora_fin") @db.Time
+  horaMontaje           DateTime?   @map("hora_montaje") @db.Time
   fechaSolicitud        DateTime    @map("fecha_solicitud") @default(now()) @db.Timestamp
   responsableNombre     String      @map("responsable_nombre") @db.VarChar(255)
   contacto              String?     @db.VarChar(255)
@@ -110,7 +113,13 @@ model SolicitudEvento {
   observaciones         String?     @db.Text
   prioridad             Prioridad   @default(Media)
   estado                Estado      @default(Pendiente)
+  googleEventId              String?   @map("google_event_id") @db.VarChar(255)
+  googleEventLink            String?   @map("google_event_link") @db.VarChar(500)
+  recordatorio7DiasEnviado   Boolean   @default(false) @map("recordatorio_7_dias_enviado")
+  recordatorio24HorasEnviado Boolean   @default(false) @map("recordatorio_24_horas_enviado")
+  usuarioId                   Int?     @map("usuario_id")
 
+  usuario     Usuario?    @relation(fields: [usuarioId], references: [id])
   plantel     Plantel?    @relation(fields: [plantelId], references: [id])
   institucion Institucion? @relation(fields: [institucionId], references: [id])
 

@@ -17,13 +17,21 @@ export async function registrarEncuesta(req: Request, res: Response): Promise<vo
     }
 
     const solicitudIdStr = String(solicitud_id)
+    const solicitudIdNum = Number(solicitud_id)
+
+    const whereOr: ({ folio: string } | { id: number })[] = [{ folio: solicitudIdStr }]
+    if (!isNaN(solicitudIdNum)) {
+      whereOr.push({ id: solicitudIdNum })
+    }
 
     const solicitud = await prisma.solicitudEvento.findFirst({ 
-      where: { folio: solicitudIdStr } 
+      where: {
+        OR: whereOr,
+      } 
     })
     
     if (!solicitud) {
-      res.status(404).json({ error: 'Solicitud de evento no encontrada con el folio proporcionado' })
+      res.status(404).json({ error: 'Solicitud de evento no encontrada con el identificador o folio proporcionado' })
       return
     }
 
@@ -82,9 +90,36 @@ export async function obtenerResumenGlobal(_req: Request, res: Response): Promis
       ? encuestas.reduce((sum, e) => sum + e.calificacion, 0) / total
       : 0
 
-    res.json({ promedio: Math.round(promedio * 100) / 100, totalEncuestas: total })
+    const distribucion: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+    for (const e of encuestas) {
+      distribucion[e.calificacion] = (distribucion[e.calificacion] ?? 0) + 1
+    }
+
+    res.json({ promedio: Math.round(promedio * 100) / 100, totalEncuestas: total, distribucion })
   } catch (error) {
     console.error('Error al obtener resumen global:', error)
+    res.status(500).json({ error: 'Error interno del servidor' })
+  }
+}
+
+export async function obtenerTodasEncuestas(_req: Request, res: Response): Promise<void> {
+  try {
+    const encuestas = await prisma.encuestaSatisfaccion.findMany({
+      orderBy: { fechaRespuesta: 'desc' },
+      include: {
+        solicitud: {
+          select: {
+            folio: true,
+            nombreEvento: true,
+            fechaEvento: true,
+          }
+        }
+      }
+    })
+
+    res.json(encuestas)
+  } catch (error) {
+    console.error('Error al obtener todas las encuestas:', error)
     res.status(500).json({ error: 'Error interno del servidor' })
   }
 }

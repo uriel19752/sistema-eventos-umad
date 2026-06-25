@@ -1,3 +1,4 @@
+import './types/express.js'
 import express from 'express'
 import dotenv from 'dotenv'
 import prisma from './config/db.js'
@@ -6,6 +7,9 @@ import materialRoutes from './routes/material.routes.js'
 import encuestaRoutes from './routes/encuesta.routes.js'
 import catalogoRoutes from './routes/catalogo.routes.js'
 import authRoutes from './routes/auth.routes.js'
+import auditoriaRoutes from './routes/auditoria.routes.js'
+import calendarioRoutes from './routes/calendario.routes.js'
+import { iniciarReminderJob } from './jobs/reminder.job.js'
 
 dotenv.config()
 
@@ -32,6 +36,10 @@ app.use('/api/materiales', materialRoutes)
 app.use('/api/encuestas', encuestaRoutes)
 app.use('/api/catalogos', catalogoRoutes)
 app.use('/api/auth', authRoutes)
+app.use('/api/calendario', calendarioRoutes)
+app.use('/api/auditorias', auditoriaRoutes)
+
+iniciarReminderJob()
 
 app.listen(PORT, async () => {
   try {

@@ -4,6 +4,9 @@ node_modules/
 # Environment variables
 .env
 
+# Google Credentials
+credentials/
+
 # Build output
 dist/
 
