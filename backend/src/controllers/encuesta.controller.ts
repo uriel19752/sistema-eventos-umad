@@ -1,18 +1,23 @@
 import type { Request, Response } from 'express'
 import prisma from '../config/db.js'
+import { crearNotificacion } from '../services/notificacion.service.js'
 
 export async function registrarEncuesta(req: Request, res: Response): Promise<void> {
   try {
-    const { solicitud_id, calificacion, comentarios } = req.body
+    const { solicitud_id, puntualidad, calidadTecnica, atencionStaff, satisfaccionGral, comentarios } = req.body
 
-    if (!solicitud_id || calificacion == null) {
-      res.status(400).json({ error: 'Faltan solicitud_id y calificacion' })
+    if (!solicitud_id) {
+      res.status(400).json({ error: 'Falta solicitud_id' })
       return
     }
 
-    const nota = Number(calificacion)
-    if (isNaN(nota) || nota < 1 || nota > 5) {
-      res.status(400).json({ error: 'La calificación debe ser un número entre 1 y 5' })
+    const p = Number(puntualidad)
+    const ct = Number(calidadTecnica)
+    const as = Number(atencionStaff)
+    const sg = Number(satisfaccionGral)
+
+    if ([p, ct, as, sg].some((v) => isNaN(v) || v < 1 || v > 5)) {
+      res.status(400).json({ error: 'Todos los criterios deben ser números entre 1 y 5' })
       return
     }
 
@@ -20,7 +25,7 @@ export async function registrarEncuesta(req: Request, res: Response): Promise<vo
     const solicitudIdNum = Number(solicitud_id)
 
     const whereOr: ({ folio: string } | { id: number })[] = [{ folio: solicitudIdStr }]
-    if (!isNaN(solicitudIdNum)) {
+    if (!isNaN(solicitudIdNum) && solicitudIdNum <= 2147483647) {
       whereOr.push({ id: solicitudIdNum })
     }
 
@@ -38,10 +43,32 @@ export async function registrarEncuesta(req: Request, res: Response): Promise<vo
     const encuesta = await prisma.encuestaSatisfaccion.create({
       data: {
         solicitudId: solicitud.id,
-        calificacion: nota,
+        puntualidad: p,
+        calidadTecnica: ct,
+        atencionStaff: as,
+        satisfaccionGral: sg,
         comentarios: comentarios ?? null,
       },
     })
+
+    if (sg <= 3) {
+      prisma.usuario
+        .findMany({ where: { rol: "ADMIN" }, select: { id: true } })
+        .then((admins) => {
+          for (const admin of admins) {
+            crearNotificacion(
+              admin.id,
+              "\uD83D\uDD25 Alerta de Satisfacción Baja",
+              `El evento "${solicitud.nombreEvento}" (folio ${solicitud.folio}) recibió una calificación general de ${sg}/5.`,
+            ).catch((e) =>
+              console.error("[NOTIFICACION] Error creando notificación", e),
+            );
+          }
+        })
+        .catch((e) =>
+          console.error("[NOTIFICACION] Error buscando administradores", e),
+        );
+    }
 
     res.status(201).json(encuesta)
   } catch (error) {
@@ -66,12 +93,12 @@ export async function obtenerEncuestasPorEvento(req: Request, res: Response): Pr
 
     const total = encuestas.length
     const promedio = total > 0
-      ? encuestas.reduce((sum, e) => sum + e.calificacion, 0) / total
+      ? encuestas.reduce((sum, e) => sum + e.satisfaccionGral, 0) / total
       : 0
 
     const distribucion: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
     for (const e of encuestas) {
-      distribucion[e.calificacion] = (distribucion[e.calificacion] ?? 0) + 1
+      distribucion[e.satisfaccionGral] = (distribucion[e.satisfaccionGral] ?? 0) + 1
     }
 
     res.json({ encuestas, promedio: Math.round(promedio * 100) / 100, total, distribucion })
@@ -81,18 +108,40 @@ export async function obtenerEncuestasPorEvento(req: Request, res: Response): Pr
   }
 }
 
-export async function obtenerResumenGlobal(_req: Request, res: Response): Promise<void> {
+function construirFiltroSolicitud(req: Request): Record<string, unknown> {
+  const { plantel, institucion } = req.query as {
+    plantel?: string;
+    institucion?: string;
+  };
+
+  const where: Record<string, unknown> = {};
+  if (plantel && plantel !== "todos") {
+    where.plantel = { nombre: plantel };
+  }
+  if (institucion && institucion !== "todos") {
+    where.institucion = { nombre: institucion };
+  }
+  return where;
+}
+
+export async function obtenerResumenGlobal(req: Request, res: Response): Promise<void> {
   try {
-    const encuestas = await prisma.encuestaSatisfaccion.findMany()
+    const solicitudWhere = construirFiltroSolicitud(req);
+
+    const encuestas = await prisma.encuestaSatisfaccion.findMany({
+      ...(Object.keys(solicitudWhere).length > 0
+        ? { where: { solicitud: solicitudWhere } }
+        : {}),
+    })
 
     const total = encuestas.length
     const promedio = total > 0
-      ? encuestas.reduce((sum, e) => sum + e.calificacion, 0) / total
+      ? encuestas.reduce((sum, e) => sum + e.satisfaccionGral, 0) / total
       : 0
 
     const distribucion: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
     for (const e of encuestas) {
-      distribucion[e.calificacion] = (distribucion[e.calificacion] ?? 0) + 1
+      distribucion[e.satisfaccionGral] = (distribucion[e.satisfaccionGral] ?? 0) + 1
     }
 
     res.json({ promedio: Math.round(promedio * 100) / 100, totalEncuestas: total, distribucion })
@@ -102,9 +151,14 @@ export async function obtenerResumenGlobal(_req: Request, res: Response): Promis
   }
 }
 
-export async function obtenerTodasEncuestas(_req: Request, res: Response): Promise<void> {
+export async function obtenerTodasEncuestas(req: Request, res: Response): Promise<void> {
   try {
+    const solicitudWhere = construirFiltroSolicitud(req);
+
     const encuestas = await prisma.encuestaSatisfaccion.findMany({
+      ...(Object.keys(solicitudWhere).length > 0
+        ? { where: { solicitud: solicitudWhere } }
+        : {}),
       orderBy: { fechaRespuesta: 'desc' },
       include: {
         solicitud: {

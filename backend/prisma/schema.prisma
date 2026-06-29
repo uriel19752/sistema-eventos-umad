@@ -54,7 +54,8 @@ model Usuario {
   password String @db.VarChar(255)
   rol      Rol    @default(USER)
 
-  solicitudes SolicitudEvento[]
+  solicitudes   SolicitudEvento[]
+  notificaciones Notificacion[]
 
   @@map("usuarios")
 }
@@ -156,7 +157,10 @@ model AsignacionProveedor {
 model EncuestaSatisfaccion {
   id             Int      @id @default(autoincrement())
   solicitudId    Int      @map("solicitud_id")
-  calificacion   Int      @map("calificacion")
+  puntualidad    Int      @default(0)
+  calidadTecnica Int      @default(0) @map("calidad_tecnica")
+  atencionStaff  Int      @default(0) @map("atencion_staff")
+  satisfaccionGral Int    @default(0) @map("satisfaccion_gral")
   comentarios    String?  @db.Text
   fechaRespuesta DateTime @map("fecha_respuesta") @default(now()) @db.Timestamp
 
@@ -176,4 +180,17 @@ model AuditoriaCancelacion {
   solicitud SolicitudEvento @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
 
   @@map("auditoria_cancelaciones")
+}
+
+model Notificacion {
+  id            Int      @id @default(autoincrement())
+  usuarioId     Int      @map("usuario_id")
+  titulo        String   @db.VarChar(255)
+  mensaje       String   @db.Text
+  leida         Boolean  @default(false)
+  fechaCreacion DateTime @map("fecha_creacion") @default(now()) @db.Timestamp
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@map("notificaciones")
 }

@@ -2,7 +2,10 @@ import type { Request, Response } from 'express'
 import * as solicitudService from '../services/solicitud.service.js'
 import type { CrearSolicitudDTO } from '../dto/crearSolicitud.dto.js'
 import type { ActualizarEstadoDTO } from '../dto/actualizarEstado.dto.js'
+import type { EditarSolicitudDTO } from '../dto/editarSolicitud.dto.js'
 import type { UsuarioAuth } from '../services/solicitud.service.js'
+import prisma from '../config/db.js'
+import { enviarCorreoModificacion } from '../services/mailService.js'
 
 function getUsuario(req: Request): UsuarioAuth {
   if (!req.usuario) {
@@ -11,11 +14,12 @@ function getUsuario(req: Request): UsuarioAuth {
   return { id: req.usuario.id, rol: req.usuario.rol }
 }
 
-export const crearSolicitud = async (req: any, res: any) => {
+export const crearSolicitud = async (req: Request, res: Response) => {
   try {
     const usuario = getUsuario(req)
 
-    const dto: CrearSolicitudDTO = {
+    // Ajustamos el DTO para capturar las IDs que alimentan las estadísticas
+    const dto: CrearSolicitudDTO & { plantelId: number; institucionId: number } = {
       folio: req.body.folio,
       nombreEvento: req.body.nombreEvento,
       descripcion: req.body.descripcion,
@@ -34,8 +38,12 @@ export const crearSolicitud = async (req: any, res: any) => {
       area: req.body.area,
       observaciones: req.body.observaciones,
       materiales: req.body.materiales,
+      // 🔑 SOLUCIÓN: Inyección y conversión explícita de las llaves relacionales
+      plantelId: Number(req.body.plantelId),
+      institucionId: Number(req.body.institucionId)
     }
 
+    // Asegúrate de que tu servicio reciba estas dos propiedades en el objeto
     const solicitud = await solicitudService.crearSolicitud(dto, usuario)
 
     return res.status(201).json({
@@ -99,6 +107,59 @@ export async function actualizarEstado(req: Request, res: Response): Promise<voi
     const statusCode = error.statusCode || 500
     const message = statusCode === 500 ? 'Error interno del servidor' : error.message
     if (statusCode === 500) console.error('Error al actualizar estado:', error)
+    res.status(statusCode).json({ error: message })
+  }
+}
+
+export async function editarSolicitud(req: Request, res: Response): Promise<void> {
+  try {
+    const usuario = getUsuario(req)
+    const id = Number(req.params.id)
+    const data: EditarSolicitudDTO = {
+      ...req.body,
+      plantelId: req.body.plantelId != null ? Number(req.body.plantelId) : undefined,
+      institucionId: req.body.institucionId != null ? Number(req.body.institucionId) : undefined,
+    }
+
+    const solicitudActual = await prisma.solicitudEvento.findUnique({
+      where: { id },
+      select: { estado: true, usuarioId: true },
+    })
+
+    const result = await solicitudService.editarSolicitud(id, data, usuario)
+
+    if (usuario.rol === 'USER') {
+      await enviarCorreoModificacion({
+        folio: result.folio,
+        nombreEvento: result.nombreEvento,
+        fechaEvento: result.fechaEvento?.toISOString().split('T')[0] ?? '',
+        horaInicio: result.horaInicio?.toISOString().split('T')[1]?.substring(0, 5) ?? '',
+        responsableNombre: result.responsableNombre,
+        editadoPor: 'solicitante',
+      })
+    } else if (usuario.rol === 'ADMIN' && solicitudActual?.estado === 'Aprobado') {
+      const docente = solicitudActual.usuarioId
+        ? await prisma.usuario.findUnique({ where: { id: solicitudActual.usuarioId }, select: { correo: true } })
+        : null
+
+      if (docente?.correo) {
+        await enviarCorreoModificacion({
+          folio: result.folio,
+          nombreEvento: result.nombreEvento,
+          fechaEvento: result.fechaEvento?.toISOString().split('T')[0] ?? '',
+          horaInicio: result.horaInicio?.toISOString().split('T')[1]?.substring(0, 5) ?? '',
+          responsableNombre: result.responsableNombre,
+          editadoPor: 'admin',
+          emailDocente: docente.correo,
+        })
+      }
+    }
+
+    res.json(result)
+  } catch (error: any) {
+    const statusCode = error.statusCode || 500
+    const message = statusCode === 500 ? 'Error interno del servidor' : error.message
+    if (statusCode === 500) console.error('Error al editar solicitud:', error)
     res.status(statusCode).json({ error: message })
   }
 }

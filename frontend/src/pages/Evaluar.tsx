@@ -1,235 +1,376 @@
-import React, { useState } from "react";
-import { useParams } from "react-router-dom";
-import axios from "axios";
+import { useState, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
+import axios from 'axios'
+import { MessageSquare, Send, Star } from 'lucide-react'
+import umadLogo from '../assets/logos/umad_logo.png'
+import { COLORS } from '../theme/colors'
 
-const COLORS = {
-  primary: "#1e3a8a",
-  secondary: "#dc2626",
-  background: "#f8fafc",
-  surface: "#ffffff",
-  textPrimary: "#1e293b",
-  textSecondary: "#64748b",
-  white: "#ffffff",
-  accent: "#facc15",
-};
+const CRITERIOS = [
+  {
+    key: 'puntualidad' as const,
+    label: 'Puntualidad',
+    desc: '¿El equipo llegó a tiempo y cumplió los horarios pactados?',
+  },
+  {
+    key: 'calidadTecnica' as const,
+    label: 'Calidad Técnica',
+    desc: '¿La calidad del material audiovisual y cobertura fue adecuada?',
+  },
+  {
+    key: 'atencionStaff' as const,
+    label: 'Atención del Staff',
+    desc: '¿El trato del personal fue cordial y profesional?',
+  },
+  {
+    key: 'satisfaccionGral' as const,
+    label: 'Satisfacción General',
+    desc: '¿Cómo calificarías la experiencia global del servicio?',
+  },
+]
 
-function Evaluar() {
-  const { id } = useParams<{ id: string }>();
-  const [rating, setRating] = useState<number>(0);
-  const [comment, setComment] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+type CriterioKey = (typeof CRITERIOS)[number]['key']
+type FormState = Record<CriterioKey, number>
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (rating === 0) {
-      setError("Por favor, selecciona una calificación");
-      return;
+const INITIAL_FORM: FormState = {
+  puntualidad: 0,
+  calidadTecnica: 0,
+  atencionStaff: 0,
+  satisfaccionGral: 0,
+}
+
+export default function Evaluar() {
+  const { id } = useParams<{ id: string }>()
+  const [nombreEvento, setNombreEvento] = useState('Cargando información del evento...')
+  const [form, setForm] = useState<FormState>(INITIAL_FORM)
+  const [hover, setHover] = useState<FormState>(INITIAL_FORM)
+  const [comentarios, setComentarios] = useState('')
+  const [enviado, setEnviado] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    async function obtenerDetallesEvento() {
+      try {
+        const res = await axios.get(`/api/solicitudes/publico/${id}`)
+        setNombreEvento(res.data.nombreEvento)
+      } catch {
+        setNombreEvento('Evaluación de Cobertura Institucional')
+      }
+    }
+    if (id) obtenerDetallesEvento()
+  }, [id])
+
+  function setCriterio(key: CriterioKey, val: number) {
+    setForm((prev) => ({ ...prev, [key]: val }))
+  }
+
+  function setHoverVal(key: CriterioKey, val: number) {
+    setHover((prev) => ({ ...prev, [key]: val }))
+  }
+
+  async function handleEnviarEncuesta(e: React.FormEvent) {
+    e.preventDefault()
+
+    const todosValidos = CRITERIOS.every((c) => form[c.key] > 0)
+    if (!todosValidos) {
+      setError('Por favor califica todos los criterios antes de enviar.')
+      return
     }
 
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError('')
 
     try {
-      await axios.post("/api/encuestas", {
-        solicitud_id: id,
-        calificacion: rating,
-        comentarios: comment,
-      });
-      setSubmitted(true);
+      await axios.post('/api/encuestas', {
+        solicitud_id: Number(id),
+        puntualidad: form.puntualidad,
+        calidadTecnica: form.calidadTecnica,
+        atencionStaff: form.atencionStaff,
+        satisfaccionGral: form.satisfaccionGral,
+        comentarios: comentarios.trim() || null,
+      })
+      setEnviado(true)
     } catch (err) {
-      console.error("Error submitting survey:", err);
       const msg = axios.isAxiosError(err)
-        ? err.response?.data?.error ||
-          "Ocurrió un error al enviar tu evaluación"
-        : "Error de conexión";
-      setError(msg);
+        ? err.response?.data?.error ?? 'Error al enviar'
+        : 'Error de conexión'
+      setError(msg)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  if (submitted) {
+  if (enviado) {
     return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <div style={styles.successIcon}>✓</div>
-          <h1 style={styles.title}>¡Muchas gracias!</h1>
-          <p style={styles.text}>
-            Tu respuesta ha sido registrada para Comunicación y Marketing
-            Digital.
+      <div style={containerStyle}>
+        <style>{`
+          @keyframes scaleIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+          @keyframes starPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+          .success-card { animation: scaleIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+          .success-star { animation: starPulse 1.5s ease-in-out infinite; }
+        `}</style>
+        <div className="success-card" style={{
+          ...cardStyle,
+          textAlign: 'center',
+          padding: '3rem 2.5rem',
+        }}>
+          <div style={{
+            width: '72px',
+            height: '72px',
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 1.25rem',
+            boxShadow: '0 8px 24px -4px rgba(245,158,11,0.35)',
+          }}>
+            <Star size={34} fill="#FFFFFF" color="#FFFFFF" strokeWidth={1.5} className="success-star" />
+          </div>
+
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            marginBottom: '0.75rem',
+          }}>
+            <span style={{ fontSize: '1.5rem' }}>🐾</span>
+            <span style={{
+              fontSize: '0.65rem',
+              fontWeight: 800,
+              color: '#1E3A8A',
+              textTransform: 'uppercase',
+              letterSpacing: '0.2em',
+            }}>
+              TigreTrack UMAD
+            </span>
+          </div>
+
+          <h1 style={{
+            fontSize: '1.5rem',
+            fontWeight: 900,
+            color: '#0F172A',
+            margin: '0 0 0.5rem',
+            letterSpacing: '-0.02em',
+            lineHeight: 1.3,
+          }}>
+            ¡Gracias por tu evaluación!
+          </h1>
+
+          <p style={{
+            color: '#475569',
+            fontSize: '0.9rem',
+            lineHeight: 1.7,
+            margin: '0 auto 1.5rem',
+            maxWidth: '380px',
+            fontWeight: 500,
+          }}>
+            Tu opinión nos ayuda a crecer como equipo y a mejorar la calidad de cobertura en cada rincón del campus. ¡Cada estrella cuenta para ser mejores!
           </p>
+
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            gap: '0.35rem',
+          }}>
+            {[1, 2, 3, 4, 5].map((s) => (
+              <Star key={s} size={20} fill="#F59E0B" color="#F59E0B" strokeWidth={1.5} aria-hidden="true" />
+            ))}
+          </div>
+
+          <div style={{
+            marginTop: '1.5rem',
+            padding: '0.75rem 1rem',
+            background: 'rgba(30,58,138,0.04)',
+            borderRadius: '10px',
+            border: '1px solid rgba(30,58,138,0.08)',
+          }}>
+            <p style={{ margin: 0, fontSize: '0.78rem', color: '#1E3A8A', fontWeight: 600, lineHeight: 1.5 }}>
+              Departamento de Comunicación · UMAD
+            </p>
+          </div>
         </div>
       </div>
-    );
+    )
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>Evaluación de Evento</h1>
-        <p style={styles.subtitle}>
-          Tu opinión es muy valiosa para mejorar nuestros procesos.
+    <div style={containerStyle}>
+      <style>{`
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .eval-card { animation: fadeInUp 0.5s ease forwards; }
+        .star-btn { transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .star-btn:hover { transform: scale(1.18); }
+        .star-btn:active { transform: scale(0.82) !important; }
+        @media (max-width: 480px) {
+          .eval-card { padding: 1.5rem !important; }
+        }
+      `}</style>
+      <div className="eval-card" style={cardStyle}>
+        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+          <img src={umadLogo} alt="Logo Universidad Madero (UMAD)" style={{ maxHeight: '42px', objectFit: 'contain' }} />
+        </div>
+
+        <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#E11D48', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+            Encuesta de Satisfacción
+          </span>
+          <h1 style={{ margin: '0.35rem 0 0', fontSize: '1.3rem', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.3 }}>
+            {nombreEvento}
+          </h1>
+        </div>
+
+        <div style={{
+          background: '#EFF6FF',
+          borderRadius: '12px',
+          border: '1px solid rgba(37,99,235,0.12)',
+          padding: '1rem 1.25rem',
+          marginBottom: '1.5rem',
+          fontSize: '0.9rem',
+          color: '#334155',
+          lineHeight: 1.6,
+          fontWeight: 500,
+        }}>
+          ¡Tu opinión hace la diferencia! 🐾 En el departamento de Comunicación de la UMAD nos tomamos muy en serio tus comentarios. Tus respuestas nos ayudan a optimizar la logística, el equipo técnico y la atención de los futuros eventos en el campus.
+        </div>
+
+        <p style={{
+          textAlign: 'center',
+          fontStyle: 'italic',
+          color: '#64748B',
+          fontSize: '0.8rem',
+          margin: '0 0 1.25rem',
+          fontWeight: 500,
+        }}>
+          Nota: 1 estrella representa la calificación más baja (Deficiente) y 5 estrellas la calificación más alta (Excelente).
         </p>
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <div style={styles.section}>
-            <label style={styles.label}>¿Cómo calificarías el servicio?</label>
-            <div style={styles.starContainer}>
-              {[1, 2, 3, 4, 5].map((num) => (
-                <button
-                  key={num}
-                  type="button"
-                  onClick={() => setRating(num)}
-                  style={{
-                    ...styles.starButton,
-                    backgroundColor: rating >= num ? COLORS.accent : "#cbd5e1",
-                    color: rating >= num ? "#1e293b" : "#64748b",
-                    transform: rating === num ? "scale(1.2)" : "scale(1)",
-                  }}
-                >
-                  {num}
-                </button>
-              ))}
-            </div>
+        {error && (
+          <div role="alert" style={{ background: '#FEE2E2', color: '#E11D48', padding: '0.75rem 1rem', borderRadius: '12px', marginBottom: '1.5rem', fontWeight: 600, fontSize: '0.85rem', textAlign: 'center', border: '1px solid rgba(225,29,72,0.15)' }}>
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleEnviarEncuesta} aria-label="Formulario de evaluación" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr',
+            gap: '1rem',
+          }}>
+            {CRITERIOS.map((c) => (
+              <div key={c.key} style={{
+                background: '#FAFBFC',
+                borderRadius: '12px',
+                padding: '0.85rem 1rem',
+                border: '1px solid #F1F5F9',
+              }}>
+                <div style={{ marginBottom: '0.4rem' }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0F172A' }}>
+                    {c.label}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 500, color: '#64748B', marginTop: '0.1rem' }}>
+                    {c.desc}
+                  </div>
+                </div>
+                <div role="group" aria-label={`Calificación para ${c.label}`} style={{ display: 'flex', justifyContent: 'center', gap: '0.3rem', marginTop: '0.5rem' }}>
+                  {[1, 2, 3, 4, 5].map((n) => {
+                    const activa = n <= (hover[c.key] || form[c.key])
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        aria-label={`${n} estrella${n > 1 ? 's' : ''} — ${n === 1 ? 'Deficiente' : n === 2 ? 'Regular' : n === 3 ? 'Aceptable' : n === 4 ? 'Buena' : 'Excelente'}`}
+                        aria-pressed={form[c.key] === n}
+                        onClick={() => setCriterio(c.key, n)}
+                        onMouseEnter={() => setHoverVal(c.key, n)}
+                        onMouseLeave={() => setHoverVal(c.key, 0)}
+                        className="star-btn"
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 0 }}
+                      >
+                        <Star
+                          size={28}
+                          fill={activa ? '#F59E0B' : 'transparent'}
+                          color={activa ? '#F59E0B' : '#E2E8F0'}
+                          strokeWidth={activa ? 1.5 : 1.8}
+                          style={{ transition: 'all 0.2s ease', filter: activa ? 'drop-shadow(0 2px 6px rgba(245,158,11,0.35))' : 'none' }}
+                        />
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div style={styles.section}>
-            <label style={styles.label}>Comentarios o Retroalimentación</label>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+              <MessageSquare size={14} color="#64748B" />
+              <label htmlFor="comentarios-evaluacion" style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Comentarios o Sugerencias
+                <span style={{ fontWeight: 400, color: '#94A3B8', textTransform: 'none' }}> (opcional)</span>
+              </label>
+            </div>
             <textarea
-              style={styles.textarea}
-              rows={4}
-              placeholder="Escribe aquí tus sugerencias o comentarios..."
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
+              id="comentarios-evaluacion"
+              value={comentarios}
+              onChange={(e) => setComentarios(e.target.value)}
+              placeholder="Comparte tu experiencia para ayudarnos a mejorar..."
+              rows={3}
+              style={{
+                width: '100%', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid #CBD5E1', fontSize: '0.9rem', fontWeight: 500, color: '#0F172A', backgroundColor: '#FFFFFF', fontFamily: 'inherit', boxSizing: 'border-box', transition: 'all 0.2s ease', resize: 'vertical',
+              }}
+              onFocus={(e) => { e.target.style.borderColor = '#2563EB'; e.target.style.boxShadow = '0 0 0 4px rgba(37,99,235,0.12)' }}
+              onBlur={(e) => { e.target.style.borderColor = '#CBD5E1'; e.target.style.boxShadow = 'none' }}
             />
           </div>
-
-          {error && <p style={styles.errorText}>{error}</p>}
 
           <button
             type="submit"
             disabled={loading}
+            aria-busy={loading}
             style={{
-              ...styles.submitButton,
-              opacity: loading ? 0.7 : 1,
-              cursor: loading ? "not-allowed" : "pointer",
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+              padding: '0.85rem 2rem',
+              background: loading ? '#94A3B8' : '#1E3A8A',
+              color: '#FFF', border: 'none', borderRadius: '12px',
+              fontSize: '0.95rem', fontWeight: 700,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              boxShadow: loading ? 'none' : '0 8px 20px -5px rgba(30,58,138,0.3)',
+              transition: 'all 0.2s ease', letterSpacing: '0.02em',
             }}
           >
-            {loading ? "Enviando..." : "Enviar Evaluación"}
+            <Send size={16} />
+            {loading ? 'Enviando encuesta...' : 'Enviar Evaluación'}
           </button>
         </form>
       </div>
     </div>
-  );
+  )
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#f8fafc",
-    color: "#1e293b",
-    fontFamily: "system-ui, -apple-system, sans-serif",
-    padding: "1rem",
-  },
-  card: {
-    backgroundColor: "#ffffff",
-    padding: "2.5rem",
-    borderRadius: "16px",
-    boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
-    width: "100%",
-    maxWidth: "450px",
-    textAlign: "center",
-    border: "1px solid #e2e8f0",
-  },
-  title: {
-    fontSize: "1.75rem",
-    fontWeight: "800",
-    marginBottom: "0.5rem",
-    color: "#1e3a8a",
-  },
-  subtitle: {
-    fontSize: "0.95rem",
-    color: "#64748b",
-    marginBottom: "2rem",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "1.5rem",
-  },
-  section: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.75rem",
-    textAlign: "left",
-  },
-  label: {
-    fontSize: "0.9rem",
-    fontWeight: "600",
-    color: "#1e293b",
-  },
-  starContainer: {
-    display: "flex",
-    justifyContent: "center",
-    gap: "0.5rem",
-  },
-  starButton: {
-    width: "45px",
-    height: "45px",
-    borderRadius: "50%",
-    border: "none",
-    fontSize: "1.1rem",
-    fontWeight: "bold",
-    transition: "all 0.2s ease",
-    cursor: "pointer",
-  },
-  textarea: {
-    width: "100%",
-    padding: "0.75rem",
-    borderRadius: "6px",
-    border: "1px solid #cbd5e1",
-    backgroundColor: "#ffffff",
-    color: "#1e293b",
-    fontSize: "0.95rem",
-    fontFamily: "inherit",
-    resize: "vertical",
-    outline: "none",
-  },
-  submitButton: {
-    backgroundColor: "#1e3a8a",
-    color: "#ffffff",
-    padding: "1rem",
-    borderRadius: "6px",
-    border: "none",
-    fontSize: "1rem",
-    fontWeight: "600",
-    transition: "all 0.2s ease",
-    marginTop: "1rem",
-    cursor: "pointer",
-  },
-  errorText: {
-    color: "#dc2626",
-    fontSize: "0.85rem",
-    textAlign: "center",
-    margin: "0",
-    fontWeight: 500,
-  },
-  successIcon: {
-    fontSize: "3rem",
-    color: "#16a34a",
-    marginBottom: "1rem",
-    fontWeight: "bold",
-  },
-  text: {
-    fontSize: "1rem",
-    color: "#64748b",
-    lineHeight: "1.5",
-  },
-};
+const containerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: '100vh',
+  background: 'linear-gradient(135deg, #F8FAFC 0%, #E2E8F0 100%)',
+  backgroundImage: `
+    linear-gradient(to right, rgba(37, 99, 235, 0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(37, 99, 235, 0.015) 1px, transparent 1px)
+  `,
+  backgroundSize: '40px 40px',
+  padding: '1.5rem',
+  boxSizing: 'border-box',
+  fontFamily: 'system-ui, -apple-system, sans-serif',
+}
 
-export default Evaluar;
+const cardStyle: React.CSSProperties = {
+  background: COLORS.surface,
+  borderRadius: '24px',
+  border: '1px solid rgba(226, 232, 240, 0.8)',
+  boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.15)',
+  padding: '2.5rem',
+  maxWidth: '480px',
+  width: '100%',
+  boxSizing: 'border-box',
+}

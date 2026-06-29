@@ -38,6 +38,11 @@ export async function eliminarEventoSolicitud(googleEventId: string | null | und
   }
 }
 
+interface MaterialInfo {
+  tipoMaterial: string
+  descripcionOtro: string | null
+}
+
 interface SolicitudData {
   id: number
   folio: string
@@ -50,10 +55,13 @@ interface SolicitudData {
   objetivoCobertura: string | null
   responsableNombre: string
   departamentoSolicitante: string | null
+  lugarEspecifico: string | null
   ubicacion: string | null
-  publicoObjetivo: string | null
+  contacto: string | null
+  autoridadesAsistentes: string | null
   observaciones: string | null
   googleEventId: string | null
+  materialSolicitado?: MaterialInfo[]
 }
 
 function combinarFechaHora(fecha: Date, hora: Date): string {
@@ -87,28 +95,48 @@ export async function crearEventoSolicitud(solicitud: SolicitudData): Promise<{ 
   const calendar = getCalendarClient()
   const calendarId = process.env.GOOGLE_CALENDAR_ID ?? ''
 
-  const montajeStr = solicitud.horaMontaje
-    ? `${formatearFecha(solicitud.fechaEvento)} ${formatearHora(solicitud.horaMontaje)}`
+  const materiales = solicitud.materialSolicitado ?? []
+  const tieneFoto = materiales.some(m => m.tipoMaterial === 'Fotografia')
+  const tieneNota = materiales.some(m => m.tipoMaterial === 'Nota_Web')
+  const tieneBanner = materiales.some(m => m.tipoMaterial === 'Banner')
+  const otroMat = materiales.find(m => m.tipoMaterial === 'Otro')
+
+  const montajeHora = solicitud.horaMontaje
+    ? formatearHora(solicitud.horaMontaje)
     : 'No requiere'
 
   const description = [
-    '------------------------------------------------',
-    'Solicitud TigreTrack',
+    '🐾 TIGRETRACK • COBERTURA INFORMATIVA',
     '',
-    `Folio: ${solicitud.folio}`,
-    `Nombre del evento: ${solicitud.nombreEvento}`,
-    `Solicitante: ${solicitud.responsableNombre}`,
-    `Área: ${solicitud.departamentoSolicitante ?? 'No especificada'}`,
-    `Objetivo: ${solicitud.objetivoCobertura ?? 'No especificado'}`,
-    `Ubicación: ${solicitud.ubicacion ?? 'No especificada'}`,
-    `Hora de montaje: ${montajeStr}`,
-    `Hora de inicio: ${formatearFecha(solicitud.fechaEvento)} ${formatearHora(solicitud.horaInicio)}`,
-    `Hora de término: ${formatearFecha(solicitud.fechaEvento)} ${formatearHora(solicitud.horaFin)}`,
-    `Número de asistentes: ${solicitud.publicoObjetivo ?? 'No especificado'}`,
-    `Observaciones: ${solicitud.observaciones ?? 'Ninguna'}`,
+    `📝 DESCRIPCIÓN DEL EVENTO`,
+    solicitud.descripcion ?? 'Sin descripción',
     '',
-    'Solicitado desde TigreTrack.',
-    '------------------------------------------------',
+    `🎯 OBJETIVO DE COMUNICACIÓN`,
+    solicitud.objetivoCobertura ?? 'No especificado',
+    '',
+    `📍 UBICACIÓN DE COBERTURA`,
+    `• 🏛️ Plantel: ${solicitud.lugarEspecifico ?? 'No especificado'}`,
+    `• 📍 Espacio Específico: ${solicitud.ubicacion ?? 'No especificado'}`,
+    '',
+    `⏰ LOGÍSTICA DE TIEMPOS`,
+    `• 🛠️ Hora de Montaje: ${montajeHora}`,
+    `• 🚀 Duración del Evento: ${formatearHora(solicitud.horaInicio)} a ${formatearHora(solicitud.horaFin)}`,
+    '',
+    `👥 RESPONSABLES`,
+    `• 👤 Organiza: ${solicitud.responsableNombre ?? 'No especificado'}`,
+    `• 🏢 Área/Depto: ${solicitud.departamentoSolicitante ?? 'No especificado'}`,
+    `• 📱 WhatsApp Contacto: ${solicitud.contacto ?? 'No especificado'}`,
+    `• 🎓 Autoridades Asistentes: ${solicitud.autoridadesAsistentes ?? 'No especificado'}`,
+    '',
+    `🛠️ ENTREGABLES COMPROMETIDOS`,
+    `• 📷 Servicio de Fotografía: ${tieneFoto ? '✅ SÍ' : '❌ NO'}`,
+    `• ✍️ Nota Informativa Web: ${tieneNota ? '✅ SÍ' : '❌ NO'}`,
+    `• 🎨 Diseño de Banners: ${tieneBanner ? '✅ SÍ' : '❌ NO'}`,
+    `• ➕ Otro requerimiento: ${otroMat?.descripcionOtro ?? 'Ninguno'}`,
+    '',
+    `____________________________________________`,
+    `Generated automatically by TigreTrack · Sistema Madero`,
+    `🔗 Panel de solicitudes: http://localhost:5173/dashboard`,
   ].join('\n')
 
   try {

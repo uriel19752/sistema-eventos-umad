@@ -2,6 +2,7 @@ import prisma from "../config/db.js";
 import { TipoMaterial, type Estado } from "../generated/prisma/client.js";
 import type { CrearSolicitudDTO } from "../dto/crearSolicitud.dto.js";
 import type { ActualizarEstadoDTO } from "../dto/actualizarEstado.dto.js";
+import type { EditarSolicitudDTO } from "../dto/editarSolicitud.dto.js";
 import {
   enviarAlertaNuevaSolicitud,
   enviarAlertaCancelacionTardia,
@@ -12,6 +13,7 @@ import {
   crearEventoSolicitud,
   eliminarEventoSolicitud,
 } from "./googleCalendarEvent.service.js";
+import { crearNotificacion } from "./notificacion.service.js";
 
 const MS_IN_48_HOURS = 48 * 60 * 60 * 1000;
 
@@ -85,7 +87,7 @@ export interface UsuarioAuth {
 console.log("=== ENTRE A ACTUALIZAR ESTADO ===");
 
 export async function crearSolicitud(
-  data: CrearSolicitudDTO,
+  data: CrearSolicitudDTO & { plantelId?: number; institucionId?: number },
   usuario: UsuarioAuth,
 ) {
   console.log(
@@ -95,8 +97,11 @@ export async function crearSolicitud(
   const materialesArray = mapearMateriales(data.materiales);
   const lugarSel = data.lugarSeleccionado || "";
 
-  const { plantelId: finalPlantelId, institucionId: finalInstitucionId } =
+  const { plantelId: deducedPlantelId, institucionId: deducedInstitucionId } =
     await mapearUbicacion(lugarSel);
+
+  const finalPlantelId = data.plantelId !== undefined ? Number(data.plantelId) : deducedPlantelId;
+  const finalInstitucionId = data.institucionId !== undefined ? Number(data.institucionId) : deducedInstitucionId;
 
   console.log('[VALIDACION HORAS]', {
     horaMontaje: data.horaMontaje,
@@ -156,6 +161,23 @@ export async function crearSolicitud(
     departamentoSolicitante: solicitud.departamentoSolicitante ?? "",
     contacto: solicitud.contacto ?? "",
   }).catch((e: any) => console.error("[MAIL] Error enviando correo", e));
+
+  prisma.usuario
+    .findMany({ where: { rol: "ADMIN" }, select: { id: true } })
+    .then((admins) => {
+      for (const admin of admins) {
+        crearNotificacion(
+          admin.id,
+          "Nueva solicitud registrada",
+          `Se ha registrado el evento "${solicitud.nombreEvento}" con folio ${solicitud.folio}.`,
+        ).catch((e) =>
+          console.error("[NOTIFICACION] Error creando notificación", e),
+        );
+      }
+    })
+    .catch((e) =>
+      console.error("[NOTIFICACION] Error buscando administradores", e),
+    );
 
   return solicitud;
 }
@@ -421,12 +443,27 @@ export async function actualizarEstado(
       );
     }
 
+    if (solicitudActual.usuarioId) {
+      crearNotificacion(
+        solicitudActual.usuarioId,
+        "Solicitud cancelada",
+        `Tu evento "${solicitudActual.nombreEvento}" (folio ${solicitudActual.folio}) ha sido cancelado.`,
+      ).catch((e) =>
+        console.error("[NOTIFICACION] Error creando notificación", e),
+      );
+    }
+
     return resultado;
   }
 
   const actualizada = await prisma.solicitudEvento.update({
     where: { id },
     data: { estado },
+    include: {
+      materialSolicitado: {
+        select: { tipoMaterial: true, descripcionOtro: true },
+      },
+    },
   });
 
   if (estado === "Aprobado") {
@@ -460,5 +497,180 @@ export async function actualizarEstado(
     }
   }
 
+  if (solicitudActual.usuarioId) {
+    crearNotificacion(
+      solicitudActual.usuarioId,
+      "Estado de solicitud actualizado",
+      `Tu evento "${solicitudActual.nombreEvento}" (folio ${solicitudActual.folio}) ha cambiado a: ${estado}.`,
+    ).catch((e) =>
+      console.error("[NOTIFICACION] Error creando notificación", e),
+    );
+  }
+
   return actualizada;
+}
+
+export async function editarSolicitud(
+  id: number,
+  data: EditarSolicitudDTO,
+  usuario: UsuarioAuth,
+) {
+  if (!id) {
+    throw Object.assign(new Error("ID inválido"), { statusCode: 400 });
+  }
+
+  const solicitudActual = await prisma.solicitudEvento.findUnique({
+    where: { id },
+    include: { materialSolicitado: true },
+  });
+
+  if (!solicitudActual) {
+    throw Object.assign(new Error("Solicitud no encontrada"), {
+      statusCode: 404,
+    });
+  }
+
+  if (usuario.rol !== "ADMIN" && solicitudActual.usuarioId !== usuario.id) {
+    throw Object.assign(
+      new Error("No tienes permiso para modificar esta solicitud"),
+      { statusCode: 403 },
+    );
+  }
+
+  if (
+    solicitudActual.estado === "Completada" ||
+    solicitudActual.estado === "Cancelada"
+  ) {
+    throw Object.assign(
+      new Error("No se puede editar una solicitud Completada o Cancelada"),
+      { statusCode: 400 },
+    );
+  }
+
+  if (data.horaFin && data.horaInicio && data.horaFin <= data.horaInicio) {
+    throw Object.assign(new Error("La hora de finalización debe ser posterior a la hora de inicio."), { statusCode: 400 });
+  }
+
+  if (data.horaMontaje && data.horaInicio && data.horaMontaje > data.horaInicio) {
+    throw Object.assign(new Error("La hora de montaje debe ser anterior o igual a la hora de inicio."), { statusCode: 400 });
+  }
+
+  const fechaEvento = data.fechaEvento
+    ? new Date(`${data.fechaEvento}T00:00:00.000Z`)
+    : undefined;
+
+  const horaInicio = data.horaInicio
+    ? new Date(`1970-01-01T${data.horaInicio}:00.000Z`)
+    : undefined;
+
+  const horaFin = data.horaFin
+    ? new Date(`1970-01-01T${data.horaFin}:00.000Z`)
+    : undefined;
+
+  const horaMontaje = data.horaMontaje
+    ? new Date(`1970-01-01T${data.horaMontaje}:00.000Z`)
+    : undefined;
+
+  const lugarSel = data.lugarSeleccionado;
+
+  let deducedPlantelId: number | null | undefined;
+  let deducedInstitucionId: number | null | undefined;
+
+  if (lugarSel !== undefined) {
+    const ubicacion = await mapearUbicacion(lugarSel);
+    deducedPlantelId = ubicacion.plantelId;
+    deducedInstitucionId = ubicacion.institucionId;
+  }
+
+  const finalPlantelId =
+    data.plantelId !== undefined
+      ? Number(data.plantelId)
+      : deducedPlantelId !== undefined
+        ? deducedPlantelId
+        : solicitudActual.plantelId;
+
+  const finalInstitucionId =
+    data.institucionId !== undefined
+      ? Number(data.institucionId)
+      : deducedInstitucionId !== undefined
+        ? deducedInstitucionId
+        : solicitudActual.institucionId;
+
+  if (data.materiales) {
+    const materialesArray = mapearMateriales(data.materiales);
+
+    await prisma.materialSolicitado.deleteMany({
+      where: { solicitudId: id },
+    });
+
+    if (materialesArray.length > 0) {
+      await prisma.materialSolicitado.createMany({
+        data: materialesArray.map((m) => ({
+          solicitudId: id,
+          tipoMaterial: m.tipoMaterial,
+          descripcionOtro: m.descripcionOtro ?? null,
+        })),
+      });
+    }
+  }
+
+  const solicitudActualizada = await prisma.solicitudEvento.update({
+    where: { id },
+    data: {
+      ...(data.folio !== undefined && { folio: data.folio }),
+      ...(data.nombreEvento !== undefined && { nombreEvento: data.nombreEvento }),
+      ...(data.descripcion !== undefined && { descripcion: data.descripcion }),
+      ...(data.objetivo !== undefined && { objetivoCobertura: data.objetivo }),
+      ...(data.publico !== undefined && { publicoObjetivo: data.publico }),
+      ...(data.autoridades !== undefined && { autoridadesAsistentes: data.autoridades }),
+      ...(data.lugar !== undefined && { lugarEspecifico: data.lugar }),
+      ...(data.ubicacion !== undefined && { ubicacion: data.ubicacion }),
+      ...(fechaEvento !== undefined && { fechaEvento }),
+      ...(horaInicio !== undefined && { horaInicio }),
+      ...(horaFin !== undefined && { horaFin }),
+      ...(horaMontaje !== undefined && { horaMontaje }),
+      ...(data.responsableNombre !== undefined && { responsableNombre: data.responsableNombre }),
+      ...(data.contacto !== undefined && { contacto: data.contacto }),
+      ...(data.area !== undefined && { departamentoSolicitante: data.area }),
+      ...(data.observaciones !== undefined && { observaciones: data.observaciones }),
+      plantelId: finalPlantelId,
+      institucionId: finalInstitucionId,
+    },
+    include: {
+      plantel: true,
+      institucion: true,
+      materialSolicitado: true,
+    },
+  });
+
+  if (usuario.rol === "ADMIN") {
+    if (solicitudActual.usuarioId) {
+      crearNotificacion(
+        solicitudActual.usuarioId,
+        "Solicitud modificada por administrador",
+        `Tu evento "${solicitudActual.nombreEvento}" (folio ${solicitudActual.folio}) fue modificado por un administrador.`,
+      ).catch((e) =>
+        console.error("[NOTIFICACION] Error creando notificación", e),
+      );
+    }
+  } else {
+    prisma.usuario
+      .findMany({ where: { rol: "ADMIN" }, select: { id: true } })
+      .then((admins) => {
+        for (const admin of admins) {
+          crearNotificacion(
+            admin.id,
+            "Solicitud actualizada por el solicitante",
+            `El solicitante actualizó los datos del evento "${solicitudActual.nombreEvento}" (folio ${solicitudActual.folio}).`,
+          ).catch((e) =>
+            console.error("[NOTIFICACION] Error creando notificación", e),
+          );
+        }
+      })
+      .catch((e) =>
+        console.error("[NOTIFICACION] Error buscando administradores", e),
+      );
+  }
+
+  return solicitudActualizada;
 }

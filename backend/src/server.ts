@@ -5,10 +5,13 @@ import prisma from './config/db.js'
 import solicitudRoutes from './routes/solicitud.routes.js'
 import materialRoutes from './routes/material.routes.js'
 import encuestaRoutes from './routes/encuesta.routes.js'
+import estadisticasRoutes from './routes/estadisticas.routes.js'
 import catalogoRoutes from './routes/catalogo.routes.js'
 import authRoutes from './routes/auth.routes.js'
 import auditoriaRoutes from './routes/auditoria.routes.js'
 import calendarioRoutes from './routes/calendario.routes.js'
+import notificacionRoutes from './routes/notificacion.routes.js'
+import reportesRoutes from './routes/reportes.routes.js'
 import { iniciarReminderJob } from './jobs/reminder.job.js'
 
 dotenv.config()
@@ -34,10 +37,13 @@ app.get('/health', async (_req, res) => {
 app.use('/api/solicitudes', solicitudRoutes)
 app.use('/api/materiales', materialRoutes)
 app.use('/api/encuestas', encuestaRoutes)
+app.use('/api/estadisticas', estadisticasRoutes)
 app.use('/api/catalogos', catalogoRoutes)
 app.use('/api/auth', authRoutes)
 app.use('/api/calendario', calendarioRoutes)
+app.use('/api/notificaciones', notificacionRoutes)
 app.use('/api/auditorias', auditoriaRoutes)
+app.use('/api/reportes', reportesRoutes)
 
 iniciarReminderJob()
 

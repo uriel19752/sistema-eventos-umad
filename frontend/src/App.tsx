@@ -7,38 +7,34 @@ import NuevaSolicitud from './pages/NuevaSolicitud'
 import Evaluar from './pages/Evaluar'
 import EstadisticasView from './pages/EstadisticasView'
 import CalendarioView from './pages/CalendarioView'
+import LogoTigreTrack from './assets/logos/LogoTigreTrack'
+import { COLORS } from './theme/colors'
 
 type Vista = 'dashboard' | 'nueva' | 'estadisticas' | 'calendario'
 
-const COLORS = {
-  primary: '#1e3a8a',
-  secondary: '#dc2626',
-  background: '#f8fafc',
-  surface: '#ffffff',
-  textPrimary: '#1e293b',
-  textSecondary: '#64748b',
-  white: '#ffffff'
-}
-
 const linkStyle: React.CSSProperties = {
   background: 'none',
-  border: 'none',
+  border: '1px solid rgba(255,255,255,0.4)',
   color: COLORS.white,
   fontSize: '0.95rem',
   fontWeight: 600,
   cursor: 'pointer',
-  padding: '0.5rem 1rem',
+  padding: '0.5rem 1.2rem',
   borderRadius: 6,
+  transition: 'all 0.2s ease-in-out',
 }
 
 const linkActivo: React.CSSProperties = {
   ...linkStyle,
-  backgroundColor: 'rgba(255,255,255,0.2)',
+  backgroundColor: COLORS.secondary,
+  border: '1px solid transparent',
+  fontWeight: 'bold',
 }
 
 function AppContent() {
   const [usuario, setUsuario] = useState<{ id: number; correo: string; rol: string; token: string } | null>(null)
   const [vistaActual, setVistaActual] = useState<Vista>('dashboard')
+  const [institucionActual, setInstitucionActual] = useState<'umad' | 'prepa' | 'imm' | 'sistema'>('sistema')
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -65,6 +61,7 @@ function AppContent() {
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', backgroundColor: COLORS.background, minHeight: '100vh' }}>
       <nav
+        aria-label="Navegación principal"
         style={{
           background: COLORS.primary,
           padding: '0.75rem 2rem',
@@ -74,31 +71,42 @@ function AppContent() {
           boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
         }}
       >
-        <span
-          style={{ color: COLORS.white, fontWeight: 800, fontSize: '1.2rem', marginRight: 'auto', letterSpacing: '-0.025em', cursor: 'pointer' }}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Ir al inicio"
+          style={{ marginRight: 'auto', cursor: 'pointer' }}
           onClick={() => { setVistaActual('dashboard'); navigate('/dashboard'); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setVistaActual('dashboard'); navigate('/dashboard'); } }}
         >
-          TigreTrack — {usuario.rol === 'ADMIN' ? 'Admin' : 'Usuario'}
-        </span>
+          <LogoTigreTrack institucion={institucionActual} height={34} />
+        </div>
         <button
+          aria-label="Nueva solicitud"
+          aria-current={vistaActual === 'nueva' ? 'page' : undefined}
           style={vistaActual === 'nueva' ? linkActivo : linkStyle}
           onClick={() => { setVistaActual('nueva'); navigate('/nueva'); }}
         >
           Nueva Solicitud
         </button>
         <button
+          aria-label="Ver estadísticas"
+          aria-current={vistaActual === 'estadisticas' ? 'page' : undefined}
           style={vistaActual === 'estadisticas' ? linkActivo : linkStyle}
           onClick={() => { setVistaActual('estadisticas'); navigate('/estadisticas'); }}
         >
           Ver Estadísticas
         </button>
         <button
+          aria-label="Calendario"
+          aria-current={vistaActual === 'calendario' ? 'page' : undefined}
           style={vistaActual === 'calendario' ? linkActivo : linkStyle}
           onClick={() => { setVistaActual('calendario'); navigate('/calendario'); }}
         >
           Calendario
         </button>
         <button
+          aria-label="Cerrar sesión"
           style={linkStyle}
           onClick={handleLogout}
         >
@@ -107,9 +115,9 @@ function AppContent() {
       </nav>
 
       <main style={{ padding: '2rem' }}>
-        {vistaActual === 'dashboard' && <Dashboard userRol={usuario.rol} />}
+        {vistaActual === 'dashboard' && <Dashboard userRol={usuario.rol} onCambioInstitucion={setInstitucionActual} />}
         {vistaActual === 'nueva' && <NuevaSolicitud />}
-        {vistaActual === 'estadisticas' && <EstadisticasView />}
+        {vistaActual === 'estadisticas' && <EstadisticasView onCambioInstitucion={setInstitucionActual} />}
         {vistaActual === 'calendario' && <CalendarioView userRol={usuario.rol} />}
       </main>
     </div>

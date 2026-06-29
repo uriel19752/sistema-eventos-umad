@@ -135,3 +135,21 @@ Automatizar la programación y seguimiento de eventos institucionales mediante s
 - [ ] Un evento aprobado crea automáticamente un registro en Google Calendar.
 - [ ] Una cancelación elimina el evento del calendario.
 - [ ] Los errores de sincronización son registrados sin afectar la operación principal del sistema.
+
+## 13. Sistema de Diseño Premium e Identidad Visual (UI/UX)
+* **Paleta de Colores Corporativa:** Uso estricto de tres ejes cromáticos basados en la identidad institucional:
+  * Azul Principal (`#1E3A8A` / `#2563EB`): Utilizado en contenedores de navegación, textos de métricas masivas y estados activos primarios.
+  * Rojo Carmesí (`#E11D48`): Utilizado exclusivamente para acentos de alta jerarquía, encabezados de tablas críticas, alertas de auditoría y estados de cancelación.
+  * Blanco Puro (`#FFFFFF`) y Fondo Dinámico (`#F1F5F9` a `#DDE3EA`): Uso de degradados angulares de 135 grados para generar profundidad tridimensional.
+* **Composición y Estructura Espacial:**
+  * **Fondo de Pantalla:** Se prohíben los colores planos. Las interfaces deben usar un fondo con degradado suave combinado con un patrón de líneas geométricas finas transparentes que emulen un plano técnico/arquitectónico.
+  * **Tarjetas de Métricas:** Contenedores con un radio de curvatura de `20px` (`borderRadius`), bordes semitranslúcidos blancos para simular efecto cristal, y sombras proyectadas difusas (`boxShadow`).
+  * **Cabecera de Tablas:** Fondo purificado (blanco o transparente) con tipografía en Rojo Carmesí en mayúsculas, grosor extra-negrita (`fontWeight: 800`) y espaciado de letras expandido (`letterSpacing: '0.08em'`).
+
+## 14. Módulo Avanzado de Estadísticas Segmentadas
+* **Estructura de Sub-Navegación:** La vista `EstadisticasView.tsx` incorporará un control de sub-pestañas premium para conmutar entre:
+  * `Panel Logístico`: Gráficas operativas de solicitudes por mes, estado, desglose por plantel e institución.
+  * `Satisfacción y Calidad`: Histograma de estrellas, métricas de CSAT y feed global de opiniones.
+* **Filtros Contextuales de Jerarquía Institucional:** Se añade un control de filtrado superior cruzado que respeta la estructura física:
+  * Si se selecciona Plantel `Centro`, el dropdown de Institución solo permitirá seleccionar: `Prepa UMAD` e `IMM`.
+  * Si se selecciona Plantel `Zavaleta`, se habilitarán: `UMAD`, `Prepa UMAD` e `IMM`.

@@ -7,16 +7,7 @@ import interactionPlugin from '@fullcalendar/interaction'
 import listPlugin from '@fullcalendar/list'
 import type { EventClickArg } from '@fullcalendar/core/index.js'
 import SolicitudCompletaModal, { type SolicitudFields } from '../components/SolicitudCompletaModal'
-
-const COLORS = {
-  primary: '#1e3a8a',
-  accent: '#f59e0b',
-  background: '#f8fafc',
-  surface: '#ffffff',
-  textPrimary: '#1e293b',
-  textSecondary: '#64748b',
-  white: '#ffffff',
-}
+import { COLORS } from '../theme/colors'
 
 interface EventoCalendario {
   id: number

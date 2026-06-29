@@ -4,16 +4,7 @@ import axios from 'axios'
 interface Props {
   onLogin: (usuario: { id: number; correo: string; rol: string; token: string }) => void
 }
-
-const COLORS = {
-  primary: '#1e3a8a',
-  secondary: '#dc2626',
-  background: '#f8fafc',
-  surface: '#ffffff',
-  textPrimary: '#1e293b',
-  textSecondary: '#64748b',
-  white: '#ffffff'
-}
+import { COLORS } from '../theme/colors'
 
 export default function Login({ onLogin }: Props) {
   const [correo, setCorreo] = useState('')
