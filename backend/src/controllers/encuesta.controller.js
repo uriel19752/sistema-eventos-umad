@@ -1,20 +1,24 @@
 import prisma from '../config/db.js';
+import { crearNotificacion } from '../services/notificacion.service.js';
 export async function registrarEncuesta(req, res) {
     try {
-        const { solicitud_id, calificacion, comentarios } = req.body;
-        if (!solicitud_id || calificacion == null) {
-            res.status(400).json({ error: 'Faltan solicitud_id y calificacion' });
+        const { solicitud_id, puntualidad, calidadTecnica, atencionStaff, satisfaccionGral, comentarios } = req.body;
+        if (!solicitud_id) {
+            res.status(400).json({ error: 'Falta solicitud_id' });
             return;
         }
-        const nota = Number(calificacion);
-        if (isNaN(nota) || nota < 1 || nota > 5) {
-            res.status(400).json({ error: 'La calificación debe ser un número entre 1 y 5' });
+        const p = Number(puntualidad);
+        const ct = Number(calidadTecnica);
+        const as = Number(atencionStaff);
+        const sg = Number(satisfaccionGral);
+        if ([p, ct, as, sg].some((v) => isNaN(v) || !Number.isInteger(v) || v < 1 || v > 5)) {
+            res.status(400).json({ error: 'Todos los criterios deben ser números enteros entre 1 y 5' });
             return;
         }
         const solicitudIdStr = String(solicitud_id);
         const solicitudIdNum = Number(solicitud_id);
         const whereOr = [{ folio: solicitudIdStr }];
-        if (!isNaN(solicitudIdNum)) {
+        if (!isNaN(solicitudIdNum) && solicitudIdNum <= 2147483647) {
             whereOr.push({ id: solicitudIdNum });
         }
         const solicitud = await prisma.solicitudEvento.findFirst({
@@ -29,10 +33,23 @@ export async function registrarEncuesta(req, res) {
         const encuesta = await prisma.encuestaSatisfaccion.create({
             data: {
                 solicitudId: solicitud.id,
-                calificacion: nota,
+                puntualidad: p,
+                calidadTecnica: ct,
+                atencionStaff: as,
+                satisfaccionGral: sg,
                 comentarios: comentarios ?? null,
             },
         });
+        if (sg <= 3) {
+            prisma.usuario
+                .findMany({ where: { rol: "ADMIN" }, select: { id: true } })
+                .then((admins) => {
+                for (const admin of admins) {
+                    crearNotificacion(admin.id, "\uD83D\uDD25 Alerta de Satisfacción Baja", `El evento "${solicitud.nombreEvento}" (folio ${solicitud.folio}) recibió una calificación general de ${sg}/5.`).catch((e) => console.error("[NOTIFICACION] Error creando notificación", e));
+                }
+            })
+                .catch((e) => console.error("[NOTIFICACION] Error buscando administradores", e));
+        }
         res.status(201).json(encuesta);
     }
     catch (error) {
@@ -52,41 +69,98 @@ export async function obtenerEncuestasPorEvento(req, res) {
             orderBy: { fechaRespuesta: 'desc' },
         });
         const total = encuestas.length;
-        const promedio = total > 0
-            ? encuestas.reduce((sum, e) => sum + e.calificacion, 0) / total
+        const promedios = total > 0
+            ? {
+                puntualidad: encuestas.reduce((s, e) => s + e.puntualidad, 0) / total,
+                calidadTecnica: encuestas.reduce((s, e) => s + e.calidadTecnica, 0) / total,
+                atencionStaff: encuestas.reduce((s, e) => s + e.atencionStaff, 0) / total,
+                satisfaccionGral: encuestas.reduce((s, e) => s + e.satisfaccionGral, 0) / total,
+            }
+            : { puntualidad: 0, calidadTecnica: 0, atencionStaff: 0, satisfaccionGral: 0 };
+        const promedioGlobal = total > 0
+            ? (promedios.puntualidad + promedios.calidadTecnica + promedios.atencionStaff + promedios.satisfaccionGral) / 4
             : 0;
-        const distribucion = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+        const distribucionEstrellas = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
         for (const e of encuestas) {
-            distribucion[e.calificacion] = (distribucion[e.calificacion] ?? 0) + 1;
+            distribucionEstrellas[e.satisfaccionGral] = (distribucionEstrellas[e.satisfaccionGral] ?? 0) + 1;
         }
-        res.json({ encuestas, promedio: Math.round(promedio * 100) / 100, total, distribucion });
+        res.json({
+            encuestas,
+            total,
+            promedios: {
+                puntualidad: Math.round(promedios.puntualidad * 100) / 100,
+                calidadTecnica: Math.round(promedios.calidadTecnica * 100) / 100,
+                atencionStaff: Math.round(promedios.atencionStaff * 100) / 100,
+                satisfaccionGral: Math.round(promedios.satisfaccionGral * 100) / 100,
+            },
+            promedioGlobal: Math.round(promedioGlobal * 100) / 100,
+            distribucionEstrellas,
+        });
     }
     catch (error) {
         console.error('Error al obtener encuestas:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 }
-export async function obtenerResumenGlobal(_req, res) {
+function construirFiltroSolicitud(req) {
+    const { plantel, institucion } = req.query;
+    const where = {};
+    if (plantel && plantel !== "todos") {
+        where.plantel = { nombre: plantel };
+    }
+    if (institucion && institucion !== "todos") {
+        where.institucion = { nombre: institucion };
+    }
+    return where;
+}
+export async function obtenerResumenGlobal(req, res) {
     try {
-        const encuestas = await prisma.encuestaSatisfaccion.findMany();
+        const solicitudWhere = construirFiltroSolicitud(req);
+        const encuestas = await prisma.encuestaSatisfaccion.findMany({
+            ...(Object.keys(solicitudWhere).length > 0
+                ? { where: { solicitud: solicitudWhere } }
+                : {}),
+        });
         const total = encuestas.length;
-        const promedio = total > 0
-            ? encuestas.reduce((sum, e) => sum + e.calificacion, 0) / total
+        const promedios = total > 0
+            ? {
+                puntualidad: encuestas.reduce((s, e) => s + e.puntualidad, 0) / total,
+                calidadTecnica: encuestas.reduce((s, e) => s + e.calidadTecnica, 0) / total,
+                atencionStaff: encuestas.reduce((s, e) => s + e.atencionStaff, 0) / total,
+                satisfaccionGral: encuestas.reduce((s, e) => s + e.satisfaccionGral, 0) / total,
+            }
+            : { puntualidad: 0, calidadTecnica: 0, atencionStaff: 0, satisfaccionGral: 0 };
+        const promedioGlobal = total > 0
+            ? (promedios.puntualidad + promedios.calidadTecnica + promedios.atencionStaff + promedios.satisfaccionGral) / 4
             : 0;
-        const distribucion = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+        const distribucionEstrellas = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
         for (const e of encuestas) {
-            distribucion[e.calificacion] = (distribucion[e.calificacion] ?? 0) + 1;
+            distribucionEstrellas[e.satisfaccionGral] = (distribucionEstrellas[e.satisfaccionGral] ?? 0) + 1;
         }
-        res.json({ promedio: Math.round(promedio * 100) / 100, totalEncuestas: total, distribucion });
+        res.json({
+            promedios: {
+                puntualidad: Math.round(promedios.puntualidad * 100) / 100,
+                calidadTecnica: Math.round(promedios.calidadTecnica * 100) / 100,
+                atencionStaff: Math.round(promedios.atencionStaff * 100) / 100,
+                satisfaccionGral: Math.round(promedios.satisfaccionGral * 100) / 100,
+            },
+            promedioGlobal: Math.round(promedioGlobal * 100) / 100,
+            totalEncuestas: total,
+            distribucionEstrellas,
+        });
     }
     catch (error) {
         console.error('Error al obtener resumen global:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 }
-export async function obtenerTodasEncuestas(_req, res) {
+export async function obtenerTodasEncuestas(req, res) {
     try {
+        const solicitudWhere = construirFiltroSolicitud(req);
         const encuestas = await prisma.encuestaSatisfaccion.findMany({
+            ...(Object.keys(solicitudWhere).length > 0
+                ? { where: { solicitud: solicitudWhere } }
+                : {}),
             orderBy: { fechaRespuesta: 'desc' },
             include: {
                 solicitud: {

@@ -1,38 +1,37 @@
-:root {
-  --primary: #1e3a8a;
-  --primary-light: rgba(30, 58, 138, 0.08);
-  --secondary: #dc2626;
-  --gold: #d97706;
-  --gold-light: rgba(217, 119, 6, 0.08);
-  --bg: #f8fafc;
-  --surface: #ffffff;
-  --text: #1e293b;
-  --text-h: #0f172a;
-  --border: #e2e8f0;
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap');
 
+:root {
+  --primary: #1E3A8A;
+  --primary-dark: #162d6e;
+  --primary-light: rgba(30,58,138,0.08);
+  --secondary: #E11D48;
+  --secondary-dark: #be123c;
+  --secondary-light: rgba(225,29,72,0.08);
+  --bg: #F0F4F8;
+  --surface: #FFFFFF;
+  --surface-2: #F8FAFC;
+  --text: #1e293b;
+  --text-h: #0F172A;
+  --text-muted: #64748B;
+  --border: #E2E8F0;
+  --border-strong: #CBD5E1;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 24px;
-
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 10px 25px -5px rgba(15, 23, 42, 0.08);
-  --shadow-xl: 0 20px 40px -8px rgba(15, 23, 42, 0.12);
-
-  --sans: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
-  --heading: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
-
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(15,23,42,0.07);
+  --shadow-lg: 0 12px 32px -4px rgba(15,23,42,0.10);
+  --shadow-xl: 0 24px 48px -8px rgba(15,23,42,0.14);
+  --sans: 'Inter', system-ui, -apple-system, sans-serif;
   font: 16px/1.6 var(--sans);
-  letter-spacing: 0.16px;
+  letter-spacing: -0.01em;
   color-scheme: light;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
@@ -52,7 +51,7 @@ body {
 }
 
 h1, h2 {
-  font-family: var(--heading);
+  font-family: var(--sans);
   font-weight: 700;
   color: var(--text-h);
 }
@@ -114,4 +113,63 @@ p {
 @media (max-width: 640px) {
   :root { font-size: 14px; }
   h1 { font-size: 1.75rem; }
+}
+
+/* ── UI Components ── */
+
+.tt-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 0.4rem; font-weight: 600; font-size: 0.875rem;
+  border: none; border-radius: var(--radius-sm); cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+  padding: 0.6rem 1.25rem; line-height: 1; white-space: nowrap;
+  font-family: var(--sans);
+}
+.tt-btn-primary { background: var(--primary); color: white; }
+.tt-btn-primary:hover:not(:disabled) { background: var(--primary-dark); box-shadow: 0 4px 12px rgba(30,58,138,0.3); transform: translateY(-1px); }
+.tt-btn-danger { background: var(--secondary); color: white; }
+.tt-btn-danger:hover:not(:disabled) { background: var(--secondary-dark); }
+.tt-btn-ghost { background: transparent; color: var(--text-h); border: 1.5px solid var(--border); }
+.tt-btn-ghost:hover:not(:disabled) { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
+.tt-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.tt-input {
+  width: 100%; padding: 0.65rem 0.9rem;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); font-size: 0.875rem; font-weight: 500;
+  color: var(--text-h); outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box; font-family: var(--sans);
+}
+.tt-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); background: white; }
+
+.tt-card {
+  background: var(--surface); border-radius: var(--radius-lg);
+  border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.tt-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 0.22rem 0.65rem; border-radius: 9999px;
+  font-size: 0.7rem; font-weight: 700; line-height: 1;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+.tt-section-title {
+  font-size: 0.65rem; font-weight: 800; color: var(--secondary);
+  text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 0.3rem;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }

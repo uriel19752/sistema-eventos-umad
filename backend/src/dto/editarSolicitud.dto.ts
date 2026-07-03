@@ -24,4 +24,7 @@ export interface EditarSolicitudDTO {
   }
   plantelId?: number
   institucionId?: number
+  institucionPersonalizada?: string
+  datosEspecificos?: Record<string, unknown>
+  croquisUrl?: string
 }

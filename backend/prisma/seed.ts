@@ -60,6 +60,15 @@ async function main() {
   const instImm = await prisma.institucion.create({
     data: { nombre: "IMM" },
   });
+  const instImmSecundaria = await prisma.institucion.create({
+    data: { nombre: "IMM Secundaria" },
+  });
+  const instImmPrimaria = await prisma.institucion.create({
+    data: { nombre: "IMM Primaria" },
+  });
+  const instImmMaternal = await prisma.institucion.create({
+    data: { nombre: "IMM Maternal" },
+  });
 
   // 5. Catalogo de planteles
   console.log("Creando catalogo de planteles...");
@@ -214,7 +223,10 @@ async function main() {
   await prisma.encuestaSatisfaccion.create({
     data: {
       solicitudId: solZavaleta1.id,
-      calificacion: 5,
+      puntualidad: 5,
+      calidadTecnica: 5,
+      atencionStaff: 5,
+      satisfaccionGral: 5,
       comentarios:
         "La cobertura fotografica y la nota web se publicaron en tiempo record. Excelente servicio de marketing.",
     },
@@ -222,7 +234,10 @@ async function main() {
   await prisma.encuestaSatisfaccion.create({
     data: {
       solicitudId: solZavaleta2.id,
-      calificacion: 5,
+      puntualidad: 5,
+      calidadTecnica: 5,
+      atencionStaff: 5,
+      satisfaccionGral: 5,
       comentarios:
         "Muy buena atencion por parte del equipo tecnico, los banners digitales quedaron impecables.",
     },
@@ -230,7 +245,10 @@ async function main() {
   await prisma.encuestaSatisfaccion.create({
     data: {
       solicitudId: solZav03.id,
-      calificacion: 5,
+      puntualidad: 5,
+      calidadTecnica: 5,
+      atencionStaff: 5,
+      satisfaccionGral: 5,
       comentarios:
         "La organizacion de la kermes estuvo impecable. Los asistentes quedaron muy satisfechos con la cobertura.",
     },
@@ -240,7 +258,10 @@ async function main() {
   await prisma.encuestaSatisfaccion.create({
     data: {
       solicitudId: solCen01.id,
-      calificacion: 4,
+      puntualidad: 4,
+      calidadTecnica: 4,
+      atencionStaff: 4,
+      satisfaccionGral: 4,
       comentarios:
         "Buen despliegue, aunque el fotografo llego unos minutos tarde al partido inaugural.",
     },
@@ -248,7 +269,10 @@ async function main() {
   await prisma.encuestaSatisfaccion.create({
     data: {
       solicitudId: solCen02.id,
-      calificacion: 3,
+      puntualidad: 3,
+      calidadTecnica: 3,
+      atencionStaff: 3,
+      satisfaccionGral: 3,
       comentarios:
         "Falto cobertura de redes sociales durante el cierre del evento gastronomico.",
     },
@@ -256,7 +280,10 @@ async function main() {
   await prisma.encuestaSatisfaccion.create({
     data: {
       solicitudId: solCen03.id,
-      calificacion: 4,
+      puntualidad: 4,
+      calidadTecnica: 4,
+      atencionStaff: 4,
+      satisfaccionGral: 4,
       comentarios:
         "A pesar de la cancelacion, el equipo respondio rapido para notificar a los asistentes. Buen protocolo.",
     },

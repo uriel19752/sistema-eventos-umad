@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import axios from 'axios'
 import { MessageSquare, Send, Star } from 'lucide-react'
-import umadLogo from '../assets/logos/umad_logo.png'
-import { COLORS } from '../theme/colors'
 
 const CRITERIOS = [
   {
@@ -207,17 +205,50 @@ export default function Evaluar() {
         }
       `}</style>
       <div className="eval-card" style={cardStyle}>
-        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-          <img src={umadLogo} alt="Logo Universidad Madero (UMAD)" style={{ maxHeight: '42px', objectFit: 'contain' }} />
-        </div>
-
+        {/* Header institucional flotante */}
         <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#E11D48', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            padding: '0.3rem 0.9rem',
+            borderRadius: '9999px',
+            background: 'rgba(30,58,138,0.08)',
+            border: '1px solid rgba(30,58,138,0.15)',
+            marginBottom: '1rem',
+          }}>
+            <span style={{
+              width: '6px', height: '6px', borderRadius: '50%',
+              background: '#E11D48', display: 'inline-block',
+            }} />
+            <span style={{
+              fontSize: '0.65rem', fontWeight: 800, color: '#1E3A8A',
+              textTransform: 'uppercase', letterSpacing: '0.12em',
+            }}>
+              TigreTrack
+            </span>
+          </div>
+
+          <h1 style={{
+            margin: 0,
+            fontSize: '1.3rem',
+            fontWeight: 900,
+            color: '#0F172A',
+            letterSpacing: '-0.02em',
+            lineHeight: 1.3,
+          }}>
             Encuesta de Satisfacción
-          </span>
-          <h1 style={{ margin: '0.35rem 0 0', fontSize: '1.3rem', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.3 }}>
-            {nombreEvento}
           </h1>
+
+          <p style={{
+            margin: '0.35rem 0 0',
+            fontSize: '0.9rem',
+            color: '#475569',
+            fontWeight: 500,
+            lineHeight: 1.5,
+          }}>
+            {nombreEvento}
+          </p>
         </div>
 
         <div style={{
@@ -350,27 +381,23 @@ export default function Evaluar() {
 
 const containerStyle: React.CSSProperties = {
   display: 'flex',
+  flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
   minHeight: '100vh',
-  background: 'linear-gradient(135deg, #F8FAFC 0%, #E2E8F0 100%)',
-  backgroundImage: `
-    linear-gradient(to right, rgba(37, 99, 235, 0.015) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(37, 99, 235, 0.015) 1px, transparent 1px)
-  `,
-  backgroundSize: '40px 40px',
+  background: 'linear-gradient(160deg, #F0F4F8 0%, #EFF6FF 100%)',
   padding: '1.5rem',
   boxSizing: 'border-box',
-  fontFamily: 'system-ui, -apple-system, sans-serif',
+  fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
 }
 
 const cardStyle: React.CSSProperties = {
-  background: COLORS.surface,
-  borderRadius: '24px',
-  border: '1px solid rgba(226, 232, 240, 0.8)',
-  boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.15)',
+  background: '#FFFFFF',
+  borderRadius: '20px',
+  border: '1px solid #E2E8F0',
+  boxShadow: '0 25px 50px -12px rgba(15,23,42,0.15), 0 4px 16px -4px rgba(15,23,42,0.04)',
   padding: '2.5rem',
-  maxWidth: '480px',
+  maxWidth: '520px',
   width: '100%',
   boxSizing: 'border-box',
 }

@@ -58,6 +58,7 @@ export async function procesarRecordatorios(): Promise<void> {
     if (diffDias === 7 && !solicitud.recordatorio7DiasEnviado) {
       enviarCorreoRecordatorio({
         destinatario: solicitud.usuario.correo,
+        solicitudId: solicitud.id,
         folio: solicitud.folio,
         nombreEvento: solicitud.nombreEvento,
         fechaEvento: formatoFecha(solicitud.fechaEvento),
@@ -79,6 +80,7 @@ export async function procesarRecordatorios(): Promise<void> {
     if (diffDias === 1 && !solicitud.recordatorio24HorasEnviado) {
       enviarCorreoRecordatorio({
         destinatario: solicitud.usuario.correo,
+        solicitudId: solicitud.id,
         folio: solicitud.folio,
         nombreEvento: solicitud.nombreEvento,
         fechaEvento: formatoFecha(solicitud.fechaEvento),

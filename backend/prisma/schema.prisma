@@ -111,6 +111,9 @@ model SolicitudEvento {
   responsableNombre     String      @map("responsable_nombre") @db.VarChar(255)
   contacto              String?     @db.VarChar(255)
   departamentoSolicitante String?  @map("departamento_solicitante") @db.VarChar(255)
+  institucionPersonalizada String?  @map("institucion_personalizada") @db.VarChar(255)
+  datosEspecificos   Json?       @map("datos_especificos")
+  croquisUrl         String?     @map("croquis_url") @db.VarChar(500)
   observaciones         String?     @db.Text
   prioridad             Prioridad   @default(Media)
   estado                Estado      @default(Pendiente)

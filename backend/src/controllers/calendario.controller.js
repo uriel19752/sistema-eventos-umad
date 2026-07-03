@@ -10,7 +10,7 @@ function combinarFechaHora(fecha, hora) {
 export async function obtenerEventosCalendario(_req, res) {
     try {
         const eventos = await prisma.solicitudEvento.findMany({
-            where: { estado: 'Aprobado' },
+            where: { estado: { not: 'Cancelada' } },
             select: {
                 id: true,
                 folio: true,

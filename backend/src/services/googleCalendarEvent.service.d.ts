@@ -8,6 +8,10 @@
  *   → Reprogramación (eliminar + crear con nuevos datos).
  */
 export declare function eliminarEventoSolicitud(googleEventId: string | null | undefined): Promise<void>;
+interface MaterialInfo {
+    tipoMaterial: string;
+    descripcionOtro: string | null;
+}
 interface SolicitudData {
     id: number;
     folio: string;
@@ -20,10 +24,13 @@ interface SolicitudData {
     objetivoCobertura: string | null;
     responsableNombre: string;
     departamentoSolicitante: string | null;
+    lugarEspecifico: string | null;
     ubicacion: string | null;
-    publicoObjetivo: string | null;
+    contacto: string | null;
+    autoridadesAsistentes: string | null;
     observaciones: string | null;
     googleEventId: string | null;
+    materialSolicitado?: MaterialInfo[];
 }
 export declare function crearEventoSolicitud(solicitud: SolicitudData): Promise<{
     id: string;

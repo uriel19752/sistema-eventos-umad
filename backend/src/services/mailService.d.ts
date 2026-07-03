@@ -32,5 +32,15 @@ interface DatosRecordatorio {
 }
 export declare function enviarCorreoRecordatorio(datos: DatosRecordatorio): Promise<void>;
 export declare function enviarCorreoCancelacion(datos: DatosNotificacionEstado): Promise<void>;
+interface DatosModificacion {
+    folio: string;
+    nombreEvento: string;
+    fechaEvento: string;
+    horaInicio: string;
+    responsableNombre: string;
+    editadoPor: 'solicitante' | 'admin';
+    emailDocente?: string;
+}
+export declare function enviarCorreoModificacion(datos: DatosModificacion): Promise<void>;
 export {};
 //# sourceMappingURL=mailService.d.ts.map

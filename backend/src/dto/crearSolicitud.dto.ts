@@ -16,6 +16,9 @@ export interface CrearSolicitudDTO {
   contacto?: string
   area?: string
   observaciones?: string
+  institucionPersonalizada?: string
+  datosEspecificos?: Record<string, unknown>
+  croquisUrl?: string
   materiales?: {
     fotografias?: boolean
     notaWeb?: boolean

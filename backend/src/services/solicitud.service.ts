@@ -41,40 +41,43 @@ function mapearMateriales(materiales: CrearSolicitudDTO["materiales"]) {
   return arr;
 }
 
+const INSTITUCIONES_POR_LUGAR: Record<string, string> = {
+  "UMAD": "UMAD",
+  "IMM Centro": "IMM",
+  "IMM Zavaleta": "IMM",
+  "Prepa UMAD": "Prepa UMAD",
+  "IMM Secundaria": "IMM Secundaria",
+  "IMM Primaria": "IMM Primaria",
+  "IMM Maternal": "IMM Maternal",
+};
+
+const PLANTELES_POR_LUGAR: Record<string, string> = {
+  "UMAD": "UMAD Campus Puebla",
+  "IMM Centro": "IMM Campus Centro",
+  "IMM Zavaleta": "IMM Campus Zavaleta",
+};
+
 async function mapearUbicacion(
   lugarSel: string,
 ): Promise<{ plantelId: number | null; institucionId: number | null }> {
-  if (lugarSel === "UMAD") {
-    const [inst, plan] = await Promise.all([
-      prisma.institucion.findFirst({ where: { nombre: "UMAD" } }),
-      prisma.plantel.findFirst({ where: { nombre: "UMAD Campus Puebla" } }),
-    ]);
-    return {
-      institucionId: inst ? inst.id : null,
-      plantelId: plan ? plan.id : null,
-    };
+  const nombreInst = INSTITUCIONES_POR_LUGAR[lugarSel];
+  const nombrePlantel = PLANTELES_POR_LUGAR[lugarSel];
+
+  if (!nombreInst) {
+    return { plantelId: null, institucionId: null };
   }
-  if (lugarSel === "IMM Centro") {
-    const [inst, plan] = await Promise.all([
-      prisma.institucion.findFirst({ where: { nombre: "IMM" } }),
-      prisma.plantel.findFirst({ where: { nombre: "IMM Campus Centro" } }),
-    ]);
-    return {
-      institucionId: inst ? inst.id : null,
-      plantelId: plan ? plan.id : null,
-    };
-  }
-  if (lugarSel === "IMM Zavaleta") {
-    const [inst, plan] = await Promise.all([
-      prisma.institucion.findFirst({ where: { nombre: "IMM" } }),
-      prisma.plantel.findFirst({ where: { nombre: "IMM Campus Zavaleta" } }),
-    ]);
-    return {
-      institucionId: inst ? inst.id : null,
-      plantelId: plan ? plan.id : null,
-    };
-  }
-  return { plantelId: null, institucionId: null };
+
+  const [inst, plan] = await Promise.all([
+    prisma.institucion.findFirst({ where: { nombre: nombreInst } }),
+    nombrePlantel
+      ? prisma.plantel.findFirst({ where: { nombre: nombrePlantel } })
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    institucionId: inst ? inst.id : null,
+    plantelId: plan ? plan.id : null,
+  };
 }
 
 const ESTADOS_VALIDOS = ["Pendiente", "Aprobado", "Completada", "Cancelada"];
@@ -87,7 +90,7 @@ export interface UsuarioAuth {
 console.log("=== ENTRE A ACTUALIZAR ESTADO ===");
 
 export async function crearSolicitud(
-  data: CrearSolicitudDTO & { plantelId?: number; institucionId?: number },
+  data: CrearSolicitudDTO & { plantelId?: number; institucionId?: number; institucionPersonalizada?: string; datosEspecificos?: Record<string, unknown>; croquisUrl?: string },
   usuario: UsuarioAuth,
 ) {
   console.log(
@@ -101,7 +104,8 @@ export async function crearSolicitud(
     await mapearUbicacion(lugarSel);
 
   const finalPlantelId = data.plantelId !== undefined ? Number(data.plantelId) : deducedPlantelId;
-  const finalInstitucionId = data.institucionId !== undefined ? Number(data.institucionId) : deducedInstitucionId;
+  const rawInstitucionId = data.institucionId !== undefined ? Number(data.institucionId) : deducedInstitucionId;
+  const finalInstitucionId = rawInstitucionId === 0 ? null : rawInstitucionId;
 
   console.log('[VALIDACION HORAS]', {
     horaMontaje: data.horaMontaje,
@@ -139,6 +143,9 @@ export async function crearSolicitud(
       contacto: data.contacto || "",
       departamentoSolicitante: data.area || "",
       observaciones: data.observaciones || null,
+      institucionPersonalizada: data.institucionPersonalizada || null,
+      datosEspecificos: data.datosEspecificos as any ?? undefined,
+      croquisUrl: data.croquisUrl ?? null,
       prioridad: "Media",
       estado: "Pendiente",
       usuarioId: usuario.id,
@@ -153,6 +160,7 @@ export async function crearSolicitud(
   );
 
   enviarAlertaNuevaSolicitud({
+    solicitudId: solicitud.id,
     folio: solicitud.folio,
     nombreEvento: solicitud.nombreEvento,
     fechaEvento: formatDate(solicitud.fechaEvento),
@@ -412,6 +420,7 @@ export async function actualizarEstado(
 
     if (tardia) {
       enviarAlertaCancelacionTardia({
+        solicitudId: solicitudActual.id,
         folio: solicitudActual.folio,
         nombreEvento: solicitudActual.nombreEvento,
         fechaEvento: formatDate(solicitudActual.fechaEvento),
@@ -428,6 +437,7 @@ export async function actualizarEstado(
     if (solicitudActual.usuario?.correo) {
       enviarCorreoCancelacion({
         destinatario: solicitudActual.usuario.correo,
+        solicitudId: solicitudActual.id,
         folio: solicitudActual.folio,
         nombreEvento: solicitudActual.nombreEvento,
         fechaEvento: formatDate(solicitudActual.fechaEvento),
@@ -482,6 +492,7 @@ export async function actualizarEstado(
     if (solicitudActual.usuario?.correo) {
       enviarCorreoAprobacion({
         destinatario: solicitudActual.usuario.correo,
+        solicitudId: solicitudActual.id,
         folio: solicitudActual.folio,
         nombreEvento: solicitudActual.nombreEvento,
         fechaEvento: formatDate(solicitudActual.fechaEvento),
@@ -589,12 +600,14 @@ export async function editarSolicitud(
         ? deducedPlantelId
         : solicitudActual.plantelId;
 
-  const finalInstitucionId =
+  const rawInstitucionEdit =
     data.institucionId !== undefined
       ? Number(data.institucionId)
       : deducedInstitucionId !== undefined
         ? deducedInstitucionId
         : solicitudActual.institucionId;
+
+  const finalInstitucionId = rawInstitucionEdit === 0 ? null : rawInstitucionEdit;
 
   if (data.materiales) {
     const materialesArray = mapearMateriales(data.materiales);
@@ -633,6 +646,9 @@ export async function editarSolicitud(
       ...(data.contacto !== undefined && { contacto: data.contacto }),
       ...(data.area !== undefined && { departamentoSolicitante: data.area }),
       ...(data.observaciones !== undefined && { observaciones: data.observaciones }),
+      ...(data.institucionPersonalizada !== undefined && { institucionPersonalizada: data.institucionPersonalizada }),
+      ...(data.datosEspecificos !== undefined && { datosEspecificos: data.datosEspecificos as any }),
+      ...(data.croquisUrl !== undefined && { croquisUrl: data.croquisUrl }),
       plantelId: finalPlantelId,
       institucionId: finalInstitucionId,
     },

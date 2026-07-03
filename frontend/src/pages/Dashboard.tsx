@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, startTransition } from 'react'
 import axios from 'axios'
 import { Search, CheckCircle, Star, Layers, FileText, AlertTriangle, XCircle, Info, BarChart3, User, Calendar, X, Activity, Clock, ClipboardList } from 'lucide-react'
 import SolicitudCompletaModal from '../components/SolicitudCompletaModal'
-import { COLORS } from '../theme/colors'
 import NotificationBell from '../components/NotificationBell'
 import SatisfaccionCalidad, { type PromediosEncuesta } from '../components/SatisfaccionCalidad'
 import umadLogo from '../assets/logos/umad_logo.png'
@@ -59,12 +58,12 @@ interface ConflictoHorario {
 interface Encuesta {
   id: number
   solicitudId: number
-  calificacion: number
+  satisfaccionGral: number
   comentarios: string | null
   fechaRespuesta: string
 }
 
-type FiltroInstitucion = '' | 'UMAD' | 'IMM'
+type FiltroInstitucion = '' | 'UMAD' | 'Prepa UMAD' | 'IMM' | 'IMM Secundaria' | 'IMM Primaria' | 'IMM Maternal' | 'Ingenierías' | 'Arte y Humanidades' | 'Negocios, Comercio y Derecho' | 'Ciencias Sociales'
 
 const STATUS_CONFIG: Record<string, { bg: string; color: string; icon: React.ReactNode }> = {
   Pendiente: { bg: '#F59E0B', color: '#FFFFFF', icon: <Clock size={14} /> },
@@ -96,9 +95,6 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
 
   const [encuestas, setEncuestas] = useState<Encuesta[]>([])
   const [promedioEncuesta, setPromedioEncuesta] = useState(0)
-  const [nuevaCalificacion, setNuevaCalificacion] = useState(5)
-  const [nuevosComentarios, setNuevosComentarios] = useState('')
-  const [guardandoEncuesta, setGuardandoEncuesta] = useState(false)
   const [modalCancelacionAbierto, setModalCancelacionAbierto] = useState(false);
   const [idSolicitudACancelar, setIdSolicitudACancelar] = useState<number | null>(null);
   const [motivoCancelacion, setMotivoCancelacion] = useState('');
@@ -127,7 +123,7 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
   async function cargarResumenGlobal() {
     try {
       const res = await axios.get('/api/encuestas/global')
-      setPromedioGlobal(res.data.promedio)
+      setPromedioGlobal(res.data.promedioGlobal)
       setTotalEncuestasGlobal(res.data.totalEncuestas)
     } catch {
       // Fail silently
@@ -146,17 +142,26 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
   }
 
   useEffect(() => {
-    cargarSolicitudes()
-    cargarResumenGlobal()
-    cargarPromediosEncuesta()
+    startTransition(() => {
+      cargarSolicitudes()
+      cargarResumenGlobal()
+      cargarPromediosEncuesta()
+    })
   }, [])
 
   useEffect(() => {
     if (onCambioInstitucion) {
       const mapa: Record<string, 'umad' | 'prepa' | 'imm' | 'sistema'> = {
         UMAD: 'umad',
-        PREPA: 'prepa',
+        'Prepa UMAD': 'prepa',
         IMM: 'imm',
+        'IMM Secundaria': 'imm',
+        'IMM Primaria': 'imm',
+        'IMM Maternal': 'imm',
+        'Ingenierías': 'umad',
+        'Arte y Humanidades': 'umad',
+        'Negocios, Comercio y Derecho': 'umad',
+        'Ciencias Sociales': 'umad',
       }
       onCambioInstitucion(mapa[filtro] ?? 'sistema')
     }
@@ -198,7 +203,7 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
       try {
         const res = await axios.get(`/api/encuestas/solicitud/${solicitudSeleccionada}`)
         setEncuestas(res.data.encuestas)
-        setPromedioEncuesta(res.data.promedio)
+        setPromedioEncuesta(res.data.promedioGlobal)
       } catch {
         setEncuestas([])
         setPromedioEncuesta(0)
@@ -285,23 +290,6 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
     }
   }
 
-  async function guardarEncuesta() {
-    if (solicitudSeleccionada === null) return
-    setGuardandoEncuesta(true)
-    try {
-      await axios.post('/api/encuestas', {
-        solicitud_id: solicitudSeleccionada,
-        calificacion: nuevaCalificacion,
-        comentarios: nuevosComentarios.trim() || null,
-      })
-      const res = await axios.get(`/api/encuestas/solicitud/${solicitudSeleccionada}`)
-      setEncuestas(res.data.encuestas)
-      setPromedioEncuesta(res.data.promedio)
-    } finally {
-      setGuardandoEncuesta(false)
-    }
-  }
-
   const renderEstrellas = (rating: number, size: number) => {
     return (
       <div style={{ display: 'flex', gap: '2px' }}>
@@ -322,24 +310,24 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
     }
 
     const hoy = new Date()
-    const plantelesUnicos = [...new Map(solicitudes.filter(s => s.plantel).map(s => [s.plantel.id, s.plantel])).values()]
+    const plantelesUnicos = [...new Map(solicitudes.filter(s => s?.plantel?.id).map(s => [s.plantel.id, s.plantel])).values()]
 
     const filtradas = solicitudes.filter(s => {
-      if (filtro !== '' && !s.institucion?.nombre?.includes(filtro)) return false
+      if (filtro !== '' && !s?.institucion?.nombre?.includes(filtro) && !(s as any)?.institucionPersonalizada?.includes(filtro) && !s?.departamentoSolicitante?.includes(filtro)) return false
       if (tabTemporal === 'mes') {
-        const fechaEvento = new Date(s.fechaEvento)
-        if (fechaEvento.getMonth() !== hoy.getMonth() || fechaEvento.getFullYear() !== hoy.getFullYear()) return false
+        const fechaEvento = new Date(s?.fechaEvento ?? '')
+        if (isNaN(fechaEvento.getTime()) || fechaEvento.getMonth() !== hoy.getMonth() || fechaEvento.getFullYear() !== hoy.getFullYear()) return false
       }
       if (tabTemporal === 'proximos') {
-        const fechaEvento = new Date(s.fechaEvento)
-        if (fechaEvento < hoy || (s.estado !== 'Pendiente' && s.estado !== 'Aprobado')) return false
+        const fechaEvento = new Date(s?.fechaEvento ?? '')
+        if (isNaN(fechaEvento.getTime()) || fechaEvento < hoy || (s.estado !== 'Pendiente' && s.estado !== 'Aprobado')) return false
       }
       if (busqueda.trim()) {
         const q = busqueda.trim().toLowerCase()
-        if (!s.nombreEvento.toLowerCase().includes(q) && !s.folio.toLowerCase().includes(q)) return false
+        if (!(s?.nombreEvento ?? '').toLowerCase().includes(q) && !(s?.folio ?? '').toLowerCase().includes(q)) return false
       }
-      if (filtroEstado !== 'TODOS' && s.estado !== filtroEstado) return false
-      if (filtroPlantel !== 'TODOS' && String(s.plantel.id) !== filtroPlantel) return false
+      if (filtroEstado !== 'TODOS' && s?.estado !== filtroEstado) return false
+      if (filtroPlantel !== 'TODOS' && String(s?.plantel?.id ?? '') !== filtroPlantel) return false
       return true
     })
     const solicitudActualObj = solicitudSeleccionada
@@ -356,48 +344,46 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
       encuestas: totalEncuestasGlobal,
     }
 
-    const pendientes = solicitudes.filter(s => s.estado === 'Pendiente').length
-    const aprobadas = solicitudes.filter(s => s.estado === 'Aprobado').length
-    const completadas = solicitudes.filter(s => s.estado === 'Completada').length
-    const canceladas = solicitudes.filter(s => s.estado === 'Cancelada').length
+    const pendientes = solicitudes.filter(s => s?.estado === 'Pendiente').length
+    const aprobadas = solicitudes.filter(s => s?.estado === 'Aprobado').length
+    const completadas = solicitudes.filter(s => s?.estado === 'Completada').length
+    const canceladas = solicitudes.filter(s => s?.estado === 'Cancelada').length
 
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      gap: '2rem',
-      background: '#F8FAFC',
-      borderRadius: '20px',
-      padding: '2rem 2.5rem',
-      boxSizing: 'border-box',
+      gap: '1.75rem',
       fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-      position: 'relative',
-      minHeight: '100%',
     }}>
-      {/* DECORATIVE TOP ACCENT */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(90deg, #1E3A8A, #DC2626)', borderRadius: '20px 20px 0 0', pointerEvents: 'none' }} />
 
-      {/* ===== HEADER ===== */}
+      {/* ===== HEADER — Floating card ===== */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
         gap: '1rem',
-        paddingBottom: '1.5rem',
-        borderBottom: '1px solid #E2E8F0',
+        background: '#FFFFFF',
+        borderRadius: '16px',
+        border: '1px solid #E2E8F0',
+        boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+        padding: '1.5rem 2rem',
       }}>
         <div>
-          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#DC2626', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '0.2rem' }}>TigreTrack</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '0.25rem' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#E11D48', display: 'inline-block' }} />
+            TigreTrack
+          </div>
           <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.03em' }}>Dashboard Administrativo</h1>
         </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: '#64748B', fontWeight: 500, background: '#FFFFFF', padding: '0.4rem 0.9rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: '#64748B', fontWeight: 500, background: '#F8FAFC', padding: '0.4rem 0.9rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
               <Calendar size={14} color="#64748B" />
               {dateStr.charAt(0).toUpperCase() + dateStr.slice(1)}
             </div>
             <NotificationBell />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: '#64748B', fontWeight: 500, background: '#FFFFFF', padding: '0.4rem 0.9rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: '#64748B', fontWeight: 500, background: '#F8FAFC', padding: '0.4rem 0.9rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
               <User size={14} color="#64748B" />
               {userRol}
             </div>
@@ -494,6 +480,7 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
                 padding: '1.25rem 1.5rem',
                 borderRadius: '14px',
                 border: '1px solid #E2E8F0',
+                borderLeft: '4px solid ' + card.color,
                 boxShadow: '0 1px 3px rgba(15,23,42,0.04), 0 1px 2px rgba(15,23,42,0.02)',
                 display: 'flex',
                 alignItems: 'center',
@@ -569,7 +556,16 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
           >
             <option value="">Todas las Instituciones</option>
             <option value="UMAD">UMAD</option>
-            <option value="IMM">IMM</option>
+            <option value="Prepa UMAD">Prepa UMAD</option>
+            <option value="IMM">IMM (Todas)</option>
+            <option value="IMM Secundaria">IMM Secundaria</option>
+            <option value="IMM Primaria">IMM Primaria</option>
+            <option value="IMM Maternal">IMM Maternal</option>
+            <option disabled style={{ fontSize: '0.65rem', fontStyle: 'italic' }}>— Divisiones UMAD —</option>
+            <option value="Ingenierías">Ingenierías</option>
+            <option value="Arte y Humanidades">Arte y Humanidades</option>
+            <option value="Negocios, Comercio y Derecho">Negocios, Comercio y Derecho</option>
+            <option value="Ciencias Sociales">Ciencias Sociales</option>
           </select>
 
           <select
@@ -688,7 +684,7 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
               style={{
                 background: '#F1F5F9',
                 border: 'none',
-                color: '#64748B',
+  color: '#E11D48',
                 padding: '0.4rem 0.9rem',
                 borderRadius: '8px',
                 fontWeight: 600,
@@ -974,7 +970,7 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
               {encuestas.map(e => (
                 <div key={e.id} style={{ padding: '1rem 1.25rem', background: '#F8FAFC', borderRadius: '10px', borderLeft: '4px solid #1E3A8A' }}>
-                  <div style={{ marginBottom: '0.4rem' }}>{renderEstrellas(e.calificacion, 14)}</div>
+                  <div style={{ marginBottom: '0.4rem' }}>{renderEstrellas(e.satisfaccionGral, 14)}</div>
                   <p style={{ margin: '0 0 0.4rem', fontSize: '0.85rem', color: '#0F172A', lineHeight: '1.4', fontWeight: 500 }}>{e.comentarios || "Sin comentarios adicionales."}</p>
                   <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 500 }}>Respondido el: {formatearFecha(e.fechaRespuesta)}</span>
                 </div>
@@ -1120,24 +1116,36 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
       {toast && (
         <div style={{
           position: 'fixed',
-          top: '1.25rem',
-          right: '1.25rem',
+          bottom: '1.5rem',
+          right: '1.5rem',
           zIndex: 9999,
-          padding: '0.75rem 1.15rem',
-          borderRadius: '10px',
-          background: toast.tipo === 'success' ? '#16A34A' : '#DC2626',
-          color: '#FFFFFF',
-          fontWeight: 600,
-          fontSize: '0.85rem',
-          boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
           display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          maxWidth: '380px',
-          animation: 'slideIn 0.3s ease-out',
+          alignItems: 'stretch',
+          background: '#0F172A',
+          borderRadius: '12px',
+          boxShadow: '0 12px 32px -4px rgba(15,23,42,0.2), 0 4px 12px rgba(0,0,0,0.08)',
+          maxWidth: '400px',
+          animation: 'slideInRight 0.35s ease-out',
+          overflow: 'hidden',
         }}>
-          {toast.tipo === 'success' ? <CheckCircle size={18} /> : <XCircle size={18} />}
-          {toast.mensaje}
+          <div style={{
+            width: '4px',
+            flexShrink: 0,
+            background: toast.tipo === 'success' ? '#22C55E' : '#EF4444',
+          }} />
+          <div style={{
+            padding: '0.85rem 1.15rem',
+            color: '#FFFFFF',
+            fontWeight: 600,
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            lineHeight: 1.4,
+          }}>
+            {toast.tipo === 'success' ? <CheckCircle size={18} color="#22C55E" /> : <XCircle size={18} color="#EF4444" />}
+            {toast.mensaje}
+          </div>
         </div>
       )}
 
@@ -1149,22 +1157,12 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
         userRol={userRol}
       />
 
-      <style>{`
-        @keyframes fadeSlideIn {
-          from { opacity: 0; transform: translateY(-6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateX(20px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-      `}</style>
     </div>
   )
 }
 
 const thStyle: React.CSSProperties = {
-  padding: '0.85rem 1.25rem',
+  padding: '0.75rem 1.25rem',
   textAlign: 'left',
   whiteSpace: 'nowrap',
   fontWeight: 700,
@@ -1172,11 +1170,12 @@ const thStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
   color: '#FFFFFF',
-  background: '#DC2626',
+  background: '#E11D48',
+  borderBottom: '2px solid #E2E8F0',
 }
 
 const tdStyle: React.CSSProperties = {
-  padding: '0.85rem 1.25rem',
+  padding: '0.75rem 1.25rem',
   whiteSpace: 'nowrap',
   borderBottom: '1px solid #F1F5F9',
   fontSize: '0.85rem',

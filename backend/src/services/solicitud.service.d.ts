@@ -1,14 +1,19 @@
-import { TipoMaterial, type Estado } from '../generated/prisma/client.js';
-import type { CrearSolicitudDTO } from '../dto/crearSolicitud.dto.js';
-import type { ActualizarEstadoDTO } from '../dto/actualizarEstado.dto.js';
+import { TipoMaterial, type Estado } from "../generated/prisma/client.js";
+import type { CrearSolicitudDTO } from "../dto/crearSolicitud.dto.js";
+import type { ActualizarEstadoDTO } from "../dto/actualizarEstado.dto.js";
+import type { EditarSolicitudDTO } from "../dto/editarSolicitud.dto.js";
 export interface UsuarioAuth {
     id: number;
-    rol: 'ADMIN' | 'USER';
+    rol: "ADMIN" | "USER";
 }
-export declare function crearSolicitud(data: CrearSolicitudDTO, usuario: UsuarioAuth): Promise<{
+export declare function crearSolicitud(data: CrearSolicitudDTO & {
+    plantelId?: number;
+    institucionId?: number;
+    institucionPersonalizada?: string;
+    datosEspecificos?: Record<string, unknown>;
+    croquisUrl?: string;
+}, usuario: UsuarioAuth): Promise<{
     id: number;
-    plantelId: number | null;
-    institucionId: number | null;
     folio: string;
     nombreEvento: string;
     descripcion: string | null;
@@ -25,6 +30,9 @@ export declare function crearSolicitud(data: CrearSolicitudDTO, usuario: Usuario
     responsableNombre: string;
     contacto: string | null;
     departamentoSolicitante: string | null;
+    institucionPersonalizada: string | null;
+    datosEspecificos: import("@prisma/client/runtime/client").JsonValue | null;
+    croquisUrl: string | null;
     observaciones: string | null;
     prioridad: import("../generated/prisma/enums.js").Prioridad;
     estado: Estado;
@@ -32,20 +40,20 @@ export declare function crearSolicitud(data: CrearSolicitudDTO, usuario: Usuario
     googleEventLink: string | null;
     recordatorio7DiasEnviado: boolean;
     recordatorio24HorasEnviado: boolean;
+    plantelId: number | null;
+    institucionId: number | null;
     usuarioId: number | null;
 }>;
 export declare function obtenerSolicitudes(usuario: UsuarioAuth): Promise<{
     id: number;
     institucion: {
-        id: number;
         nombre: string;
+        id: number;
     } | null;
     plantel: {
-        id: number;
         nombre: string;
+        id: number;
     } | null;
-    plantelId: number | null;
-    institucionId: number | null;
     folio: string;
     nombreEvento: string;
     descripcion: string | null;
@@ -72,16 +80,18 @@ export declare function obtenerSolicitudes(usuario: UsuarioAuth): Promise<{
         correo: string;
         rol: import("../generated/prisma/enums.js").Rol;
     } | null;
+    plantelId: number | null;
+    institucionId: number | null;
     usuarioId: number | null;
 }[]>;
 export declare function obtenerSolicitudPorId(id: number, usuario: UsuarioAuth): Promise<{
     institucion: {
-        id: number;
         nombre: string;
+        id: number;
     } | null;
     plantel: {
-        id: number;
         nombre: string;
+        id: number;
     } | null;
     usuario: {
         id: number;
@@ -90,14 +100,12 @@ export declare function obtenerSolicitudPorId(id: number, usuario: UsuarioAuth):
     } | null;
     materialSolicitado: {
         id: number;
+        solicitudId: number;
         tipoMaterial: TipoMaterial;
         descripcionOtro: string | null;
-        solicitudId: number;
     }[];
 } & {
     id: number;
-    plantelId: number | null;
-    institucionId: number | null;
     folio: string;
     nombreEvento: string;
     descripcion: string | null;
@@ -114,6 +122,9 @@ export declare function obtenerSolicitudPorId(id: number, usuario: UsuarioAuth):
     responsableNombre: string;
     contacto: string | null;
     departamentoSolicitante: string | null;
+    institucionPersonalizada: string | null;
+    datosEspecificos: import("@prisma/client/runtime/client").JsonValue | null;
+    croquisUrl: string | null;
     observaciones: string | null;
     prioridad: import("../generated/prisma/enums.js").Prioridad;
     estado: Estado;
@@ -121,12 +132,12 @@ export declare function obtenerSolicitudPorId(id: number, usuario: UsuarioAuth):
     googleEventLink: string | null;
     recordatorio7DiasEnviado: boolean;
     recordatorio24HorasEnviado: boolean;
+    plantelId: number | null;
+    institucionId: number | null;
     usuarioId: number | null;
 }>;
 export declare function actualizarEstado(id: number, data: ActualizarEstadoDTO, usuario: UsuarioAuth): Promise<{
     id: number;
-    plantelId: number | null;
-    institucionId: number | null;
     folio: string;
     nombreEvento: string;
     descripcion: string | null;
@@ -143,6 +154,9 @@ export declare function actualizarEstado(id: number, data: ActualizarEstadoDTO, 
     responsableNombre: string;
     contacto: string | null;
     departamentoSolicitante: string | null;
+    institucionPersonalizada: string | null;
+    datosEspecificos: import("@prisma/client/runtime/client").JsonValue | null;
+    croquisUrl: string | null;
     observaciones: string | null;
     prioridad: import("../generated/prisma/enums.js").Prioridad;
     estado: Estado;
@@ -150,6 +164,55 @@ export declare function actualizarEstado(id: number, data: ActualizarEstadoDTO, 
     googleEventLink: string | null;
     recordatorio7DiasEnviado: boolean;
     recordatorio24HorasEnviado: boolean;
+    plantelId: number | null;
+    institucionId: number | null;
+    usuarioId: number | null;
+}>;
+export declare function editarSolicitud(id: number, data: EditarSolicitudDTO, usuario: UsuarioAuth): Promise<{
+    institucion: {
+        nombre: string;
+        id: number;
+    } | null;
+    plantel: {
+        nombre: string;
+        id: number;
+    } | null;
+    materialSolicitado: {
+        id: number;
+        solicitudId: number;
+        tipoMaterial: TipoMaterial;
+        descripcionOtro: string | null;
+    }[];
+} & {
+    id: number;
+    folio: string;
+    nombreEvento: string;
+    descripcion: string | null;
+    objetivoCobertura: string | null;
+    publicoObjetivo: string | null;
+    autoridadesAsistentes: string | null;
+    lugarEspecifico: string | null;
+    ubicacion: string | null;
+    fechaEvento: Date;
+    horaInicio: Date;
+    horaFin: Date;
+    horaMontaje: Date | null;
+    fechaSolicitud: Date;
+    responsableNombre: string;
+    contacto: string | null;
+    departamentoSolicitante: string | null;
+    institucionPersonalizada: string | null;
+    datosEspecificos: import("@prisma/client/runtime/client").JsonValue | null;
+    croquisUrl: string | null;
+    observaciones: string | null;
+    prioridad: import("../generated/prisma/enums.js").Prioridad;
+    estado: Estado;
+    googleEventId: string | null;
+    googleEventLink: string | null;
+    recordatorio7DiasEnviado: boolean;
+    recordatorio24HorasEnviado: boolean;
+    plantelId: number | null;
+    institucionId: number | null;
     usuarioId: number | null;
 }>;
 //# sourceMappingURL=solicitud.service.d.ts.map

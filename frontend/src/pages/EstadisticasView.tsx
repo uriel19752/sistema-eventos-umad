@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import axios from 'axios'
 import {
   BarChart, Bar, PieChart, Pie, Cell, Legend, LabelList,
@@ -10,6 +10,7 @@ import {
   FileText, FileSpreadsheet, TrendingUp, Trophy, Calendar, AlertTriangle,
 } from 'lucide-react'
 import { COLORS } from '../theme/colors'
+import SatisfaccionCalidad, { type DiagnosticoCSAT, type VariacionCSAT, type DistribucionEstrella } from '../components/SatisfaccionCalidad'
 
 const STATUS_COLORS: Record<string, string> = {
   Pendiente: '#F59E0B',
@@ -28,6 +29,7 @@ interface DashboardData {
   canceladas: number
   porPlantel: { nombre: string; total: number }[]
   porInstitucion: { nombre: string; total: number }[]
+  porMaterial: { tipo: string; total: number }[]
   porMes: { mes: string; total: number }[]
   tendencias: {
     totalSolicitudes: number
@@ -53,17 +55,17 @@ interface DashboardData {
     satisfaccionGral: number
     totalEncuestas: number
   }
-}
-
-interface ResumenGlobal {
-  promedio: number
-  totalEncuestas: number
-  distribucion: Record<number, number>
+  diagnostico?: DiagnosticoCSAT
+  variacionCSAT?: VariacionCSAT
+  distribucionEstrellas?: DistribucionEstrella[]
 }
 
 interface EncuestaCompleta {
   id: number
   solicitudId: number
+  puntualidad: number
+  calidadTecnica: number
+  atencionStaff: number
   satisfaccionGral: number
   comentarios: string | null
   fechaRespuesta: string
@@ -115,8 +117,9 @@ function Skeleton() {
 export default function EstadisticasView({ onCambioInstitucion }: { onCambioInstitucion?: (inst: 'umad' | 'prepa' | 'imm' | 'sistema') => void }) {
   const [loading, setLoading] = useState(true)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
-  const [global, setGlobal] = useState<ResumenGlobal | null>(null)
   const [encuestas, setEncuestas] = useState<EncuestaCompleta[]>([])
+  const [selectedEncuestaId, setSelectedEncuestaId] = useState<number | 'todas'>('todas')
+  const [error, setError] = useState<string | null>(null)
 
   const [exportandoPDF, setExportandoPDF] = useState(false)
   const [exportandoExcel, setExportandoExcel] = useState(false)
@@ -214,102 +217,394 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
   useEffect(() => {
     async function fetchData() {
       setLoading(true)
+      setError(null)
+
+      const params: Record<string, string> = {
+        plantel: plantelFiltro,
+        institucion: institucionFiltro,
+      }
+      if (fechaInicio) params.fechaInicio = fechaInicio
+      if (fechaFin) params.fechaFin = fechaFin
+
       try {
-        const params: Record<string, string> = {
-          plantel: plantelFiltro,
-          institucion: institucionFiltro,
-        }
-        if (fechaInicio) params.fechaInicio = fechaInicio
-        if (fechaFin) params.fechaFin = fechaFin
-
-        const [dashRes, globalRes, todasRes] = await Promise.all([
-          axios.get<DashboardData>('/api/estadisticas/dashboard', { params }),
-          axios.get<ResumenGlobal>('/api/encuestas/global', { params }),
-          axios.get<EncuestaCompleta[]>('/api/encuestas/todas', { params }),
-        ])
-
+        const dashRes = await axios.get<DashboardData>('/api/estadisticas/dashboard', { params })
         setDashboard(dashRes.data)
-        setGlobal(globalRes.data)
+      } catch (e) {
+        console.error('Error al cargar dashboard estadístico:', e)
+        setError('No se pudieron cargar las estadísticas. Verifica la conexión e intenta de nuevo.')
+      }
+
+      try {
+        const todasRes = await axios.get<EncuestaCompleta[]>('/api/encuestas/todas', { params })
         setEncuestas(todasRes.data)
       } catch (e) {
-        console.error('Error al cargar estadísticas:', e)
-      } finally {
-        setLoading(false)
+        console.error('Error al cargar encuestas:', e)
       }
+
+      setLoading(false)
     }
     fetchData()
   }, [plantelFiltro, institucionFiltro, fechaInicio, fechaFin])
+
+  function reintentar() {
+    const params: Record<string, string> = {
+      plantel: plantelFiltro,
+      institucion: institucionFiltro,
+    }
+    if (fechaInicio) params.fechaInicio = fechaInicio
+    if (fechaFin) params.fechaFin = fechaFin
+
+    setLoading(true)
+    setError(null)
+
+    Promise.all([
+      axios.get<DashboardData>('/api/estadisticas/dashboard', { params }).then(r => setDashboard(r.data)),
+      axios.get<EncuestaCompleta[]>('/api/encuestas/todas', { params }).then(r => setEncuestas(r.data)),
+    ]).catch(e => {
+      console.error('Error al reintentar cargar estadísticas:', e)
+      setError('No se pudieron cargar las estadísticas. Verifica la conexión e intenta de nuevo.')
+    }).finally(() => setLoading(false))
+  }
 
   useEffect(() => {
     if (onCambioInstitucion) {
       const mapa: Record<string, 'umad' | 'prepa' | 'imm' | 'sistema'> = {
         UMAD: 'umad',
-        'PREPA UMAD': 'prepa',
+        'Prepa UMAD': 'prepa',
         IMM: 'imm',
+        'IMM Secundaria': 'imm',
+        'IMM Primaria': 'imm',
+        'IMM Maternal': 'imm',
+        'Ingenierías': 'umad',
+        'Arte y Humanidades': 'umad',
+        'Negocios, Comercio y Derecho': 'umad',
+        'Ciencias Sociales': 'umad',
       }
       onCambioInstitucion(mapa[institucionFiltro] ?? 'sistema')
     }
   }, [institucionFiltro, onCambioInstitucion])
 
-  // Lógica para resetear institución si no pertenece al plantel seleccionado
+  const INSTITUCIONES_DE_IMM: readonly string[] = ['IMM Secundaria', 'IMM Primaria', 'IMM Maternal', 'Prepa UMAD']
+
   const manejarCambioPlantel = (plantel: string) => {
     setPlantelFiltro(plantel)
-    if (plantel === 'IMM Campus Centro' && institucionFiltro === 'UMAD') {
+    if (plantel.startsWith('IMM') && institucionFiltro === 'UMAD') {
+      setInstitucionFiltro('todos')
+    }
+    if (plantel === 'UMAD Campus Puebla' && INSTITUCIONES_DE_IMM.includes(institucionFiltro)) {
       setInstitucionFiltro('todos')
     }
   }
 
-  if (loading) return <Skeleton />
-  if (!dashboard) return null
+  const porInstitucionProcesado = useMemo(() => {
+    try {
+      const CATEGORIAS_OFICIALES = new Set([
+        'Prepa UMAD',
+        'Ingenierías',
+        'Arte y Humanidades',
+        'Negocios, Comercio y Derecho',
+        'Ciencias Sociales',
+        'IMM Secundaria',
+        'IMM Primaria',
+        'IMM Maternal',
+      ])
 
-  const estadoData = [
-    { name: 'Pendientes', value: dashboard.pendientes, color: STATUS_COLORS.Pendiente },
-    { name: 'Aprobadas', value: dashboard.aprobadas, color: STATUS_COLORS.Aprobado },
-    { name: 'Completadas', value: dashboard.completadas, color: STATUS_COLORS.Completada },
-    { name: 'Canceladas', value: dashboard.canceladas, color: STATUS_COLORS.Cancelada },
-  ].filter(d => d.value > 0)
+      const MAP_LEGACY: Record<string, string> = {
+        'UMAD': 'UMAD General',
+        'IMM': 'IMM General',
+      }
 
-  const tieneDatosMensuales = dashboard.porMes.some(m => m.total > 0)
+      const raw = Array.isArray(dashboard?.porInstitucion) ? dashboard.porInstitucion : []
 
-  const distribucionArr = global
-    ? [5, 4, 3, 2, 1].map(s => ({
-        estrellas: s,
-        count: global.distribucion[s] ?? 0,
-        pct: global.totalEncuestas > 0 ? ((global.distribucion[s] ?? 0) / global.totalEncuestas) * 100 : 0,
-      }))
-    : []
+      const nombresCategorias = [...CATEGORIAS_OFICIALES, 'UMAD General', 'IMM General', 'Otros']
+      const categorias: Record<string, number> = {}
+      for (const nom of nombresCategorias) {
+        categorias[nom] = 0
+      }
 
-  const maxDist = Math.max(...distribucionArr.map(d => d.count), 1)
-  const comentarios = encuestas.filter(e => e.comentarios && e.comentarios.trim().length > 0)
+      let sumaInstituciones = 0
+      for (const d of raw) {
+        const inst = d?.nombre ?? ''
+        const total = Number(d?.total) || 0
 
-  const KPI_CARDS = [
-    { label: 'Total Solicitudes', value: dashboard.totalSolicitudes, tendencia: dashboard.tendencias.totalSolicitudes, icon: Layers, color: '#1E3A8A', bg: 'rgba(30,58,138,0.06)' },
-    { label: 'Pendientes', value: dashboard.pendientes, tendencia: dashboard.tendencias.pendientes, icon: Clock, color: STATUS_COLORS.Pendiente, bg: 'rgba(245,158,11,0.08)' },
-    { label: 'Aprobadas', value: dashboard.aprobadas, tendencia: dashboard.tendencias.aprobadas, icon: CheckCircle, color: STATUS_COLORS.Aprobado, bg: 'rgba(30,58,138,0.08)' },
-    { label: 'Completadas', value: dashboard.completadas, tendencia: dashboard.tendencias.completadas, icon: Activity, color: STATUS_COLORS.Completada, bg: 'rgba(22,163,74,0.08)' },
-    { label: 'Canceladas', value: dashboard.canceladas, tendencia: dashboard.tendencias.canceladas, icon: XCircle, color: STATUS_COLORS.Cancelada, bg: 'rgba(225,29,72,0.08)' },
-  ] as const
+        if (CATEGORIAS_OFICIALES.has(inst)) {
+          categorias[inst] += total
+        } else if (MAP_LEGACY[inst] !== undefined) {
+          categorias[MAP_LEGACY[inst]] += total
+        } else {
+          categorias['Otros'] += total
+        }
+        sumaInstituciones += total
+      }
 
-  const generarResumen = () => {
-    const { tendenciaGeneral, plantelLider, institucionLider, mesMasActivo, tasaCancelacion } = dashboard.insights
-    const pct = tendenciaGeneral.porcentaje
-    const tipo = tendenciaGeneral.tipo
+      const totalSolicitudes = Number(dashboard?.totalSolicitudes) || 0
+      const resto = Math.max(0, totalSolicitudes - sumaInstituciones)
+      if (resto > 0) {
+        categorias['Otros'] += resto
+      }
 
-    let cuerpo = ''
-    if (tipo === 'crecimiento') {
-      cuerpo = `Se observa una tendencia positiva del ${pct}% respecto al mes anterior. ${mesMasActivo.nombre} fue el periodo con mayor actividad. ${institucionLider.nombre} concentra la mayor demanda institucional, mientras que ${plantelLider.nombre} lidera la operación logística.`
-    } else if (tipo === 'decrecimiento') {
-      cuerpo = `Se registra una disminución del ${Math.abs(pct)}% respecto al mes anterior. A pesar de ello, ${mesMasActivo.nombre} continúa siendo el periodo de mayor actividad y ${plantelLider.nombre} mantiene el liderazgo operativo.`
-    } else {
-      cuerpo = `La operación se mantiene estable respecto al periodo anterior. ${mesMasActivo.nombre} presenta la mayor actividad registrada y ${institucionLider.nombre} concentra la mayor participación institucional.`
+      return Object.entries(categorias)
+        .filter(([_, count]) => count > 0)
+        .map(([nombre, total]) => ({ nombre, total }))
+        .sort((a, b) => b.total - a.total)
+    } catch (e) {
+      console.error('Error procesando porInstitucion:', e)
+      return []
+    }
+  }, [dashboard?.porInstitucion, dashboard?.totalSolicitudes])
+
+  const porMesProcesado = useMemo(() =>
+    (Array.isArray(dashboard?.porMes) ? dashboard.porMes : [])
+      .map(m => ({ mes: m?.mes ?? '', total: Number(m?.total) || 0 }))
+      .filter(m => m.total > 0),
+  [dashboard?.porMes])
+
+  const porPlantelProcesado = useMemo(() =>
+    (Array.isArray(dashboard?.porPlantel) ? dashboard.porPlantel : [])
+      .map(p => ({ nombre: p?.nombre ?? '', total: Number(p?.total) || 0 }))
+      .filter(p => p.total > 0),
+  [dashboard?.porPlantel])
+
+  const MACRO_COLORS: Record<string, string> = {
+    'Universidad (UMAD)': '#1E3A8A',
+    'Colegios (IMM / Prepa)': '#E11D48',
+    Otros: '#64748B',
+  }
+
+  const MAP_GLOBAL: Record<string, string> = {
+    'Ingenierías': 'Universidad (UMAD)',
+    'Arte y Humanidades': 'Universidad (UMAD)',
+    'Negocios, Comercio y Derecho': 'Universidad (UMAD)',
+    'Ciencias Sociales': 'Universidad (UMAD)',
+    'UMAD': 'Universidad (UMAD)',
+    'Prepa UMAD': 'Colegios (IMM / Prepa)',
+    'IMM Secundaria': 'Colegios (IMM / Prepa)',
+    'IMM Primaria': 'Colegios (IMM / Prepa)',
+    'IMM Maternal': 'Colegios (IMM / Prepa)',
+  }
+
+  const porMacroProcesado = useMemo(() => {
+    try {
+      const raw = Array.isArray(dashboard?.porInstitucion) ? dashboard.porInstitucion : []
+      const categorias: Record<string, number> = {
+        'Universidad (UMAD)': 0,
+        'Colegios (IMM / Prepa)': 0,
+        Otros: 0,
+      }
+
+      let sumaInstituciones = 0
+      for (const d of raw) {
+        const inst = d?.nombre ?? ''
+        const total = Number(d?.total) || 0
+        const grupo = MAP_GLOBAL[inst] ?? 'Otros'
+        categorias[grupo] += total
+        sumaInstituciones += total
+      }
+
+      const plantelRaw = Array.isArray(dashboard?.porPlantel) ? dashboard.porPlantel : []
+      let totalUMADPlantel = 0
+      for (const p of plantelRaw) {
+        if ((p?.nombre ?? '').toLowerCase().includes('umad')) {
+          totalUMADPlantel += Number(p?.total) || 0
+        }
+      }
+
+      const deficit = Math.max(0, totalUMADPlantel - categorias['Universidad (UMAD)'])
+      const extraible = Math.min(categorias['Otros'], deficit)
+      if (extraible > 0) {
+        categorias['Otros'] -= extraible
+        categorias['Universidad (UMAD)'] += extraible
+      }
+
+      const totalSolicitudes = Number(dashboard?.totalSolicitudes) || 0
+      const resto = Math.max(0, totalSolicitudes - sumaInstituciones)
+      if (resto > 0) {
+        if (totalUMADPlantel > 0 && totalSolicitudes > 0) {
+          const porcUMAD = totalUMADPlantel / totalSolicitudes
+          const parteUMAD = Math.round(resto * porcUMAD)
+          if (parteUMAD > 0) {
+            categorias['Universidad (UMAD)'] += parteUMAD
+            const parteOtros = resto - parteUMAD
+            if (parteOtros > 0) {
+              categorias['Otros'] += parteOtros
+            }
+          } else {
+            categorias['Otros'] += resto
+          }
+        } else {
+          categorias['Otros'] += resto
+        }
+      }
+
+      return Object.entries(categorias)
+        .filter(([_, v]) => v > 0)
+        .map(([name, value]) => ({ name, value, color: MACRO_COLORS[name] ?? '#CBD5E1' }))
+    } catch (e) {
+      console.error('Error procesando porMacro:', e)
+      return []
+    }
+  }, [dashboard?.porInstitucion, dashboard?.porPlantel, dashboard?.totalSolicitudes])
+
+  const MAP_MATERIAL_NAME: Record<string, string> = {
+    Fotografia: 'Fotografía',
+    Nota_Web: 'Nota Web',
+    Banner: 'Banner',
+    Otro: 'Otro',
+  }
+
+  const porMaterialProcesado = useMemo(() => {
+    try {
+      const raw = Array.isArray(dashboard?.porMaterial) ? dashboard.porMaterial : []
+      return raw
+        .map(m => ({ name: MAP_MATERIAL_NAME[m?.tipo ?? ''] ?? m?.tipo ?? 'Otro', cantidad: Number(m?.total) || 0 }))
+        .filter(m => m.cantidad > 0)
+    } catch (e) {
+      console.error('Error procesando porMaterial:', e)
+      return []
+    }
+  }, [dashboard?.porMaterial])
+
+  function calcularDiagnostico(globalAvg: number): { nivel: string; mensaje: string; color: string } {
+    if (globalAvg >= 4.5) return { nivel: 'Excelente', mensaje: 'La calidad del servicio supera las expectativas. Se mantiene un nivel óptimo de satisfacción.', color: '#16A34A' }
+    if (globalAvg >= 3.5) return { nivel: 'Bueno', mensaje: 'El servicio es satisfactorio. Existen oportunidades menores de mejora en algunos aspectos.', color: '#2563EB' }
+    if (globalAvg >= 2.5) return { nivel: 'Aceptable', mensaje: 'El servicio cumple con lo mínimo esperado. Se recomienda implementar mejoras puntuales.', color: '#F59E0B' }
+    if (globalAvg >= 1.5) return { nivel: 'Deficiente', mensaje: 'El servicio presenta deficiencias notables. Se requiere una revisión profunda de los procesos.', color: '#F97316' }
+    return { nivel: 'Crítico', mensaje: 'El servicio no cumple con los estándares mínimos de calidad. Se necesita una intervención inmediata.', color: '#DC2626' }
+  }
+
+  const encuestasFiltradas = useMemo(() => {
+    if (selectedEncuestaId === 'todas') return encuestas
+    return encuestas.filter(e => e.id === selectedEncuestaId)
+  }, [selectedEncuestaId, encuestas])
+
+  const datosCSAT = useMemo(() => {
+    if (selectedEncuestaId === 'todas') return null
+    if (encuestasFiltradas.length === 0) return null
+
+    const total = encuestasFiltradas.length
+    const sum = (field: keyof EncuestaCompleta) =>
+      encuestasFiltradas.reduce((s, e) => s + Number(e[field]), 0)
+    const avg = (field: keyof EncuestaCompleta) => total > 0 ? sum(field) / total : 0
+
+    const promedios = {
+      puntualidad: Number(avg('puntualidad').toFixed(1)),
+      calidadTecnica: Number(avg('calidadTecnica').toFixed(1)),
+      atencionStaff: Number(avg('atencionStaff').toFixed(1)),
+      satisfaccionGral: Number(avg('satisfaccionGral').toFixed(1)),
+      totalEncuestas: total,
     }
 
-    const fraseFinal = tasaCancelacion < 10
-      ? 'La tasa de cancelación se mantiene dentro de parámetros óptimos.'
-      : 'La tasa de cancelación requiere seguimiento para identificar oportunidades de mejora.'
+    const globalAvg = (promedios.puntualidad + promedios.calidadTecnica + promedios.atencionStaff + promedios.satisfaccionGral) / 4
 
-    return `${cuerpo} ${fraseFinal}`
+    const distMap: Record<number, number> = {}
+    for (const e of encuestasFiltradas) {
+      const key = e.satisfaccionGral
+      distMap[key] = (distMap[key] ?? 0) + 1
+    }
+    const distribucion = [5, 4, 3, 2, 1].map(estrellas => ({ estrellas, total: distMap[estrellas] ?? 0 }))
+
+    return {
+      promedios,
+      diagnostico: calcularDiagnostico(globalAvg),
+      distribucion,
+    }
+  }, [encuestasFiltradas, selectedEncuestaId])
+
+  if (loading) return <Skeleton />
+  if (error) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.5rem', padding: '4rem 2rem', minHeight: '400px' }}>
+        <AlertTriangle size={48} color="#DC2626" />
+        <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 700, color: '#0F172A', textAlign: 'center' }}>Error al cargar estadísticas</h2>
+        <p style={{ margin: 0, fontSize: '0.95rem', color: '#64748B', textAlign: 'center', maxWidth: '480px', lineHeight: 1.5 }}>{error}</p>
+        <button
+          onClick={reintentar}
+          style={{
+            padding: '0.6rem 1.5rem', background: '#1E3A8A', color: '#FFFFFF',
+            border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '0.85rem',
+            cursor: 'pointer', boxShadow: '0 4px 12px rgba(30,58,138,0.25)',
+            transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: '0.5rem',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = '#0F2B6B'}
+          onMouseLeave={(e) => e.currentTarget.style.background = '#1E3A8A'}
+        >
+          <Activity size={16} />
+          Reintentar
+        </button>
+      </div>
+    )
   }
+  if (!dashboard) return null
+
+  const {
+    estadoData,
+    tieneDatosMensuales,
+    comentarios,
+    KPI_CARDS,
+    generarResumen,
+  } = (() => {
+    try {
+      const estadoData = [
+        { name: 'Pendientes', value: Number(dashboard.pendientes) || 0, color: STATUS_COLORS.Pendiente },
+        { name: 'Aprobadas', value: Number(dashboard.aprobadas) || 0, color: STATUS_COLORS.Aprobado },
+        { name: 'Completadas', value: Number(dashboard.completadas) || 0, color: STATUS_COLORS.Completada },
+        { name: 'Canceladas', value: Number(dashboard.canceladas) || 0, color: STATUS_COLORS.Cancelada },
+      ].filter(d => d.value > 0)
+
+      const tieneDatosMensuales = porMesProcesado.length > 0
+
+      const comentarios = encuestas
+        .filter(e => e.comentarios && e.comentarios.trim().length > 0)
+        .filter(e => selectedEncuestaId === 'todas' || e.id === selectedEncuestaId)
+
+      const KPI_CARDS = [
+        { label: 'Total Solicitudes', value: Number(dashboard.totalSolicitudes) || 0, tendencia: Number(dashboard.tendencias?.totalSolicitudes) || 0, icon: Layers, color: '#1E3A8A', bg: 'rgba(30,58,138,0.06)' },
+        { label: 'Pendientes', value: Number(dashboard.pendientes) || 0, tendencia: Number(dashboard.tendencias?.pendientes) || 0, icon: Clock, color: STATUS_COLORS.Pendiente, bg: 'rgba(245,158,11,0.08)' },
+        { label: 'Aprobadas', value: Number(dashboard.aprobadas) || 0, tendencia: Number(dashboard.tendencias?.aprobadas) || 0, icon: CheckCircle, color: STATUS_COLORS.Aprobado, bg: 'rgba(30,58,138,0.08)' },
+        { label: 'Completadas', value: Number(dashboard.completadas) || 0, tendencia: Number(dashboard.tendencias?.completadas) || 0, icon: Activity, color: STATUS_COLORS.Completada, bg: 'rgba(22,163,74,0.08)' },
+        { label: 'Canceladas', value: Number(dashboard.canceladas) || 0, tendencia: Number(dashboard.tendencias?.canceladas) || 0, icon: XCircle, color: STATUS_COLORS.Cancelada, bg: 'rgba(225,29,72,0.08)' },
+      ] as const
+
+      const generarResumen = (): string => {
+        try {
+          const insights = dashboard.insights ?? {} as DashboardData['insights']
+          const { tendenciaGeneral, plantelLider, institucionLider, mesMasActivo, tasaCancelacion } = insights
+          const pct = Number(tendenciaGeneral?.porcentaje) || 0
+          const tipo = tendenciaGeneral?.tipo ?? 'estable'
+          const nomMes = mesMasActivo?.nombre ?? 'N/D'
+          const nomPlantel = plantelLider?.nombre ?? 'N/D'
+          const nomInst = institucionLider?.nombre ?? 'N/D'
+          const tasa = Number(tasaCancelacion) || 0
+
+          const cuerpo = tipo === 'crecimiento'
+            ? `Se observa una tendencia positiva del ${pct}% respecto al mes anterior. ${nomMes} fue el periodo con mayor actividad. ${nomInst} concentra la mayor demanda institucional, mientras que ${nomPlantel} lidera la operación logística.`
+            : tipo === 'decrecimiento'
+              ? `Se registra una disminución del ${Math.abs(pct)}% respecto al mes anterior. A pesar de ello, ${nomMes} continúa siendo el periodo de mayor actividad y ${nomPlantel} mantiene el liderazgo operativo.`
+              : `La operación se mantiene estable respecto al periodo anterior. ${nomMes} presenta la mayor actividad registrada y ${nomInst} concentra la mayor participación institucional.`
+
+          const fraseFinal = tasa < 10
+            ? 'La tasa de cancelación se mantiene dentro de parámetros óptimos.'
+            : 'La tasa de cancelación requiere seguimiento para identificar oportunidades de mejora.'
+
+          return `${cuerpo} ${fraseFinal}`
+        } catch (e) {
+          console.error('Error generando resumen ejecutivo:', e)
+          return 'No hay datos suficientes para generar el resumen ejecutivo.'
+        }
+      }
+
+      return { estadoData, tieneDatosMensuales, comentarios, KPI_CARDS, generarResumen }
+    } catch (error) {
+      console.error('Error procesando estadísticas del dashboard:', error)
+      return {
+        estadoData: [],
+        tieneDatosMensuales: false,
+        comentarios: [],
+        KPI_CARDS: [],
+        generarResumen: () => 'No hay datos suficientes para generar el resumen ejecutivo.',
+      }
+    }
+  })()
 
   return (
     <div style={{ 
@@ -372,9 +667,18 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
             style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.85rem', fontWeight: 600, color: COLORS.textPrimary, outline: 'none', cursor: 'pointer' }}
           >
             <option value="todos">Todas las Instituciones</option>
-            {plantelFiltro !== 'IMM Campus Centro' && <option value="UMAD">UMAD (Universidad)</option>}
+            {plantelFiltro !== 'IMM Campus Centro' && plantelFiltro !== 'IMM Campus Zavaleta' && <option value="UMAD">UMAD (Universidad)</option>}
             <option value="Prepa UMAD">Prepa UMAD</option>
-            <option value="IMM">IMM</option>
+            <option value="IMM Secundaria">IMM Secundaria</option>
+            <option value="IMM Primaria">IMM Primaria</option>
+            <option value="IMM Maternal">IMM Maternal</option>
+            {plantelFiltro !== 'IMM Campus Centro' && plantelFiltro !== 'IMM Campus Zavaleta' && <>
+              <option disabled style={{ fontStyle: 'italic', fontSize: '0.7rem' }}>─ Divisiones UMAD ─</option>
+              <option value="Ingenierías">Ingenierías</option>
+              <option value="Arte y Humanidades">Arte y Humanidades</option>
+              <option value="Negocios, Comercio y Derecho">Negocios, Comercio y Derecho</option>
+              <option value="Ciencias Sociales">Ciencias Sociales</option>
+            </>}
           </select>
 
           <select
@@ -541,47 +845,47 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
                 {
                   label: 'Tendencia General',
                   icon: TrendingUp,
-                  value: dashboard.insights.tendenciaGeneral.tipo === 'crecimiento'
-                    ? `+${dashboard.insights.tendenciaGeneral.porcentaje}%`
-                    : dashboard.insights.tendenciaGeneral.tipo === 'decrecimiento'
-                      ? `${dashboard.insights.tendenciaGeneral.porcentaje}%`
+                  value: dashboard.insights?.tendenciaGeneral?.tipo === 'crecimiento'
+                    ? `+${dashboard.insights?.tendenciaGeneral?.porcentaje ?? 0}%`
+                    : dashboard.insights?.tendenciaGeneral?.tipo === 'decrecimiento'
+                      ? `${dashboard.insights?.tendenciaGeneral?.porcentaje ?? 0}%`
                       : 'Estable',
-                  desc: dashboard.insights.tendenciaGeneral.tipo === 'crecimiento'
-                    ? `Incremento del ${dashboard.insights.tendenciaGeneral.porcentaje}% respecto al mes anterior`
-                    : dashboard.insights.tendenciaGeneral.tipo === 'decrecimiento'
-                      ? `Decremento del ${Math.abs(dashboard.insights.tendenciaGeneral.porcentaje)}% respecto al mes anterior`
+                  desc: dashboard.insights?.tendenciaGeneral?.tipo === 'crecimiento'
+                    ? `Incremento del ${dashboard.insights?.tendenciaGeneral?.porcentaje ?? 0}% respecto al mes anterior`
+                    : dashboard.insights?.tendenciaGeneral?.tipo === 'decrecimiento'
+                      ? `Decremento del ${Math.abs(dashboard.insights?.tendenciaGeneral?.porcentaje ?? 0)}% respecto al mes anterior`
                       : 'Sin cambios significativos respecto al mes anterior',
-                  color: dashboard.insights.tendenciaGeneral.tipo === 'crecimiento' ? '#16A34A' : dashboard.insights.tendenciaGeneral.tipo === 'decrecimiento' ? '#E11D48' : '#64748B',
-                  bg: dashboard.insights.tendenciaGeneral.tipo === 'crecimiento' ? 'rgba(22,163,74,0.08)' : dashboard.insights.tendenciaGeneral.tipo === 'decrecimiento' ? 'rgba(225,29,72,0.08)' : 'rgba(100,116,139,0.08)',
+                  color: dashboard.insights?.tendenciaGeneral?.tipo === 'crecimiento' ? '#16A34A' : dashboard.insights?.tendenciaGeneral?.tipo === 'decrecimiento' ? '#E11D48' : '#64748B',
+                  bg: dashboard.insights?.tendenciaGeneral?.tipo === 'crecimiento' ? 'rgba(22,163,74,0.08)' : dashboard.insights?.tendenciaGeneral?.tipo === 'decrecimiento' ? 'rgba(225,29,72,0.08)' : 'rgba(100,116,139,0.08)',
                 },
                 {
                   label: 'Plantel Líder',
                   icon: Trophy,
-                  value: dashboard.insights.plantelLider.nombre,
-                  desc: `${dashboard.insights.plantelLider.porcentaje}% de las solicitudes`,
+                  value: dashboard.insights?.plantelLider?.nombre ?? 'N/D',
+                  desc: `${dashboard.insights?.plantelLider?.porcentaje ?? 0}% de las solicitudes`,
                   color: '#1E3A8A',
                   bg: 'rgba(30,58,138,0.06)',
                 },
                 {
                   label: 'Institución Líder',
                   icon: Building2,
-                  value: dashboard.insights.institucionLider.nombre,
-                  desc: `${dashboard.insights.institucionLider.porcentaje}% de las solicitudes`,
+                  value: dashboard.insights?.institucionLider?.nombre ?? 'N/D',
+                  desc: `${dashboard.insights?.institucionLider?.porcentaje ?? 0}% de las solicitudes`,
                   color: '#16A34A',
                   bg: 'rgba(22,163,74,0.08)',
                 },
                 {
                   label: 'Mes Más Activo',
                   icon: Calendar,
-                  value: dashboard.insights.mesMasActivo.nombre,
-                  desc: `${dashboard.insights.mesMasActivo.total} solicitudes`,
+                  value: dashboard.insights?.mesMasActivo?.nombre ?? 'N/D',
+                  desc: `${dashboard.insights?.mesMasActivo?.total ?? 0} solicitudes`,
                   color: '#F59E0B',
                   bg: 'rgba(245,158,11,0.08)',
                 },
                 {
                   label: 'Tasa de Cancelación',
                   icon: AlertTriangle,
-                  value: `${dashboard.insights.tasaCancelacion}%`,
+                  value: `${dashboard.insights?.tasaCancelacion ?? 0}%`,
                   desc: 'del total de solicitudes',
                   color: '#E11D48',
                   bg: 'rgba(225,29,72,0.08)',
@@ -645,13 +949,13 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
               </div>
               {tieneDatosMensuales ? (
                 <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={dashboard.porMes}>
+                  <BarChart data={porMesProcesado}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                     <XAxis dataKey="mes" tick={{ fontSize: 12, fill: '#64748B', fontWeight: 600 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <Tooltip contentStyle={{ background: COLORS.surface, borderRadius: '10px', border: '1px solid #E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} />
                     <Bar dataKey="total" fill="#1E3A8A" radius={[6, 6, 0, 0]} barSize={28}>
-                      <LabelList dataKey="total" position="top" style={{ fontSize: 11, fill: '#64748B', fontWeight: 600 }} formatter={(v: number) => v > 0 ? v : ''} />
+                      <LabelList dataKey="total" position="top" style={{ fontSize: 11, fill: '#64748B', fontWeight: 600 }} formatter={(v: any) => v > 0 ? v : ''} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -672,7 +976,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
                 <ResponsiveContainer width="100%" height={280}>
                   <PieChart margin={{ top: 10, right: 80, left: 80, bottom: 10 }}>
                     <Pie
-                      data={estadoData}
+                      data={Array.isArray(estadoData) ? estadoData : []}
                       dataKey="value"
                       nameKey="name"
                       cx="50%"
@@ -680,7 +984,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
                       innerRadius={55}
                       outerRadius={80}
                       paddingAngle={3}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
                     >
                       {estadoData.map((entry, idx) => (
                         <Cell key={idx} fill={entry.color} />
@@ -700,18 +1004,84 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
 
             <div className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
+                <Layers size={18} color="#1E3A8A" />
+                <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Distribución por Categoría Macro</h2>
+              </div>
+              {porMacroProcesado.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart margin={{ top: 10, right: 80, left: 80, bottom: 10 }}>
+                    <Pie
+                      data={porMacroProcesado}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={3}
+                      label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                    >
+                      {porMacroProcesado.map((entry, idx) => (
+                        <Cell key={idx} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ background: COLORS.surface, borderRadius: '10px', border: '1px solid #E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
+                      formatter={(value: any, _name: any, props: any) => [
+                        `${value.toLocaleString()} solicitudes`,
+                        props.payload.name,
+                      ]}
+                    />
+                    <Legend verticalAlign="bottom" formatter={(value) => <span style={{ fontWeight: 600, color: '#0F172A' }}>{value}</span>} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', padding: '2rem 0' }}>
+                  <Layers size={32} color="#CBD5E1" />
+                  <p style={{ color: '#64748B', textAlign: 'center', margin: 0 }}>Sin datos macro.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
+                <Award size={18} color="#E11D48" />
+                <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Servicios de Cobertura más Demandados</h2>
+              </div>
+              {porMaterialProcesado.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={porMaterialProcesado}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#64748B', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip contentStyle={{ background: COLORS.surface, borderRadius: '10px', border: '1px solid #E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} />
+                    <Bar dataKey="cantidad" fill="#1E3A8A" radius={[6, 6, 0, 0]} barSize={48}>
+                      <LabelList dataKey="cantidad" position="top" style={{ fontSize: 13, fill: '#0F172A', fontWeight: 800 }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', padding: '2rem 0' }}>
+                  <Award size={32} color="#CBD5E1" />
+                  <p style={{ color: '#64748B', textAlign: 'center', margin: 0 }}>Sin datos de cobertura.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
                 <Building2 size={18} color="#E11D48" />
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Distribución Física por Plantel</h2>
               </div>
-              {dashboard.porPlantel.length > 0 ? (
+              {porPlantelProcesado.length > 0 ? (
                 <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={dashboard.porPlantel} layout="vertical">
+                  <BarChart data={porPlantelProcesado} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
                     <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748B' }} />
                     <YAxis type="category" dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontWeight: 600, fill: '#0F172A' }} width={100} />
                     <Tooltip />
                     <Bar dataKey="total" radius={[0, 6, 6, 0]} barSize={16}>
-                      {dashboard.porPlantel.map((_, idx) => <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />)}
+                      {porPlantelProcesado.map((_, idx) => <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />)}
                       <LabelList dataKey="total" position="right" style={{ fontSize: 11, fill: '#64748B', fontWeight: 600 }} />
                     </Bar>
                   </BarChart>
@@ -729,15 +1099,15 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
                 <Users size={18} color="#1E3A8A" />
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Distribución Académica por Institución</h2>
               </div>
-              {dashboard.porInstitucion.length > 0 ? (
+              {porInstitucionProcesado.length > 0 ? (
                 <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={dashboard.porInstitucion} layout="vertical">
+                  <BarChart data={Array.isArray(porInstitucionProcesado) ? porInstitucionProcesado : []} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
                     <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748B' }} />
-                    <YAxis type="category" dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontWeight: 600, fill: '#0F172A' }} width={100} />
+                    <YAxis type="category" dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontWeight: 600, fill: '#0F172A' }} width={120} />
                     <Tooltip />
                     <Bar dataKey="total" radius={[0, 6, 6, 0]} barSize={16}>
-                      {dashboard.porInstitucion.map((_, idx) => <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />)}
+                      {porInstitucionProcesado.map((_, idx) => <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />)}
                       <LabelList dataKey="total" position="right" style={{ fontSize: 11, fill: '#64748B', fontWeight: 600 }} />
                     </Bar>
                   </BarChart>
@@ -756,93 +1126,45 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
       {/* APARTADO 2: CALIDAD Y SATISFACCION */}
       {subTab === 'satisfacion' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-          
-          {/* HISTOGRAMA DE ESTRELLAS */}
-          <div style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '2rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '2rem' }}>
-              <Award size={18} color="#F59E0B" />
-              <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Métricas de Satisfacción Institucional (CSAT)</h2>
+
+          {/* MÉTRICAS CSAT — NUEVO DASHBOARD EJECUTIVO */}
+          <div style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem 2rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <Award size={18} color="#F59E0B" />
+                <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Métricas de Satisfacción Institucional (CSAT)</h2>
+              </div>
+              <select
+                value={selectedEncuestaId}
+                onChange={e => setSelectedEncuestaId(e.target.value === 'todas' ? 'todas' : Number(e.target.value))}
+                style={{
+                  padding: '0.4rem 0.75rem', fontSize: '0.82rem', fontWeight: 600, color: '#0F172A',
+                  background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px',
+                  cursor: 'pointer', fontFamily: 'Inter, sans-serif',
+                }}
+              >
+                <option value="todas">Todas las Encuestas (Consolidado)</option>
+                {encuestas.map(enc => (
+                  <option key={enc.id} value={enc.id}>
+                    {enc.solicitud?.nombreEvento ?? 'Evento'} - {formatDate(enc.fechaRespuesta)}
+                  </option>
+                ))}
+              </select>
             </div>
-            
-            {((): React.ReactNode => {
-              const p = dashboard.promediosEncuesta
-              if (!p || p.totalEncuestas <= 0) {
-                return <p style={{ color: '#64748B', textAlign: 'center' }}>No hay encuestas para calcular promedios.</p>
-              }
 
-              const valor = p.satisfaccionGral
-              const pct = (valor / 5) * 100
-              const ringColor = pct >= 85 ? '#10B981' : pct >= 70 ? '#F59E0B' : '#EF4444'
-              const size = 130
-              const stroke = 10
-              const r = (size - stroke) / 2
-              const circ = 2 * Math.PI * r
-              const offset = circ - (pct / 100) * circ
-
-              return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <div style={{ textAlign: 'center', paddingRight: '1rem' }}>
-                    <div style={{ position: 'relative', width: size, height: size, margin: '0 auto' }}>
-                      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-                        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#F1F5F9" strokeWidth={stroke} />
-                        <circle
-                          cx={size / 2}
-                          cy={size / 2}
-                          r={r}
-                          fill="none"
-                          stroke={ringColor}
-                          strokeWidth={stroke}
-                          strokeLinecap="round"
-                          strokeDasharray={circ}
-                          strokeDashoffset={offset}
-                          style={{ transition: 'stroke-dashoffset 1s cubic-bezier(0.4,0,0.2,1)' }}
-                        />
-                      </svg>
-                      <div style={{
-                        position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                        alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <span style={{ fontSize: '2rem', fontWeight: 900, color: '#0F172A', lineHeight: 1 }}>{valor.toFixed(1)}</span>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: ringColor, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                          {pct >= 85 ? 'Excelente' : pct >= 70 ? 'Regular' : 'Crítico'}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ margin: '0.5rem 0' }}><Estrellas rating={valor} size={16} /></div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Satisfacción General de {p.totalEncuestas} Evaluaciones</div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {[
-                      { label: 'Puntualidad', key: 'puntualidad' as const, color: '#3B82F6' },
-                      { label: 'Calidad Técnica', key: 'calidadTecnica' as const, color: '#8B5CF6' },
-                      { label: 'Atención del Staff', key: 'atencionStaff' as const, color: '#EC4899' },
-                    ].map((bar) => {
-                      const v = p[bar.key]
-                      const pc = (v / 5) * 100
-                      return (
-                        <div key={bar.key}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '0.3rem' }}>
-                            <span style={{ fontWeight: 600, color: '#0F172A' }}>{bar.label}</span>
-                            <span style={{ fontWeight: 700, color: bar.color }}>{v.toFixed(1)} / 5</span>
-                          </div>
-                          <div style={{ width: '100%', height: '10px', background: '#F1F5F9', borderRadius: '9999px', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
-                            <div style={{
-                              height: '100%',
-                              borderRadius: '9999px',
-                              width: `${pc}%`,
-                              background: `linear-gradient(90deg, ${bar.color}bb, ${bar.color})`,
-                              transition: 'width 1s cubic-bezier(0.4,0,0.2,1)',
-                              boxShadow: `0 0 8px ${bar.color}55`,
-                            }} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })()}
+            {(selectedEncuestaId === 'todas'
+              ? (dashboard.promediosEncuesta && dashboard.promediosEncuesta.totalEncuestas > 0)
+              : datosCSAT !== null
+            ) ? (
+              <SatisfaccionCalidad
+                data={selectedEncuestaId === 'todas' ? dashboard.promediosEncuesta! : datosCSAT!.promedios}
+                diagnostico={selectedEncuestaId === 'todas' ? (dashboard.diagnostico ?? null) : datosCSAT!.diagnostico}
+                variacionCSAT={selectedEncuestaId === 'todas' ? (dashboard.variacionCSAT ?? null) : null}
+                distribucionEstrellas={selectedEncuestaId === 'todas' ? (dashboard.distribucionEstrellas ?? []) : datosCSAT!.distribucion}
+              />
+            ) : (
+              <p style={{ color: '#64748B', textAlign: 'center', padding: '2rem 0' }}>No hay encuestas para calcular promedios.</p>
+            )}
           </div>
 
           {/* WALL / MURO DE OPINIONES CRONOLÓGICO */}
@@ -854,19 +1176,22 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
 
             {comentarios.length > 0 ? (
               <div style={{ maxHeight: '480px', overflowY: 'auto', padding: '1.5rem 2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {comentarios.map((e) => (
-                  <div key={e.id} style={{ padding: '1.25rem', background: '#F8FAFC', borderRadius: '14px', borderLeft: '4px solid #1E3A8A', border: '1px solid #F1F5F9', borderLeftColor: '#1E3A8A' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '0.92rem' }}>{e.solicitud.nombreEvento}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 500 }}>Folio: {e.solicitud.folio}</div>
+                  {comentarios.map((e) => {
+                    const solicitud = e.solicitud ?? ({} as EncuestaCompleta['solicitud'])
+                    return (
+                    <div key={e.id} style={{ padding: '1.25rem', background: '#F8FAFC', borderRadius: '14px', borderLeft: '4px solid #1E3A8A', border: '1px solid #F1F5F9', borderLeftColor: '#1E3A8A' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '0.92rem' }}>{solicitud?.nombreEvento ?? 'Evento sin nombre'}</div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 500 }}>Folio: {solicitud?.folio ?? 'N/A'}</div>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>{formatDate(e.fechaRespuesta)}</span>
                       </div>
-                      <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>{formatDate(e.fechaRespuesta)}</span>
+                      <div style={{ margin: '0.5rem 0' }}><Estrellas rating={e.satisfaccionGral} size={12} /></div>
+                      <p style={{ margin: 0, fontSize: '0.88rem', color: '#334155', lineHeight: 1.5, fontWeight: 500 }}>"{e.comentarios ?? ''}"</p>
                     </div>
-                    <div style={{ margin: '0.5rem 0' }}><Estrellas rating={e.satisfaccionGral} size={12} /></div>
-                    <p style={{ margin: 0, fontSize: '0.88rem', color: '#334155', lineHeight: 1.5, fontWeight: 500 }}>"{e.comentarios}"</p>
-                  </div>
-                ))}
+                    )
+                  })}
               </div>
             ) : (
               <p style={{ color: '#64748B', textAlign: 'center', padding: '3rem' }}>No hay comentarios escritos registrados.</p>

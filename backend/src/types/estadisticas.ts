@@ -54,6 +54,28 @@ export interface PromediosEncuesta {
   totalEncuestas: number;
 }
 
+export interface DiagnosticoCSAT {
+  nivel: string;
+  mensaje: string;
+  color: string;
+}
+
+export interface VariacionCSAT {
+  actual: number;
+  anterior: number;
+  diferencia: number;
+}
+
+export interface DistribucionEstrella {
+  estrellas: number;
+  total: number;
+}
+
+export interface EstadisticasPorMaterial {
+  tipo: string;
+  total: number;
+}
+
 export interface DashboardEstadisticas {
   totalSolicitudes: number;
   pendientes: number;
@@ -62,8 +84,12 @@ export interface DashboardEstadisticas {
   canceladas: number;
   porPlantel: EstadisticasPorEntidad[];
   porInstitucion: EstadisticasPorEntidad[];
+  porMaterial: EstadisticasPorMaterial[];
   porMes: EstadisticasPorMes[];
   tendencias: TendenciasMensuales;
   insights: InsightsData;
   promediosEncuesta: PromediosEncuesta;
+  diagnostico: DiagnosticoCSAT;
+  variacionCSAT: VariacionCSAT;
+  distribucionEstrellas: DistribucionEstrella[];
 }

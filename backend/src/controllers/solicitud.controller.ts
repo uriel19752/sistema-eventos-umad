@@ -19,7 +19,7 @@ export const crearSolicitud = async (req: Request, res: Response) => {
     const usuario = getUsuario(req)
 
     // Ajustamos el DTO para capturar las IDs que alimentan las estadísticas
-    const dto: CrearSolicitudDTO & { plantelId: number; institucionId: number } = {
+    const dto: CrearSolicitudDTO & { plantelId: number; institucionId?: number } = {
       folio: req.body.folio,
       nombreEvento: req.body.nombreEvento,
       descripcion: req.body.descripcion,
@@ -37,10 +37,13 @@ export const crearSolicitud = async (req: Request, res: Response) => {
       contacto: req.body.contacto,
       area: req.body.area,
       observaciones: req.body.observaciones,
+      institucionPersonalizada: req.body.institucionPersonalizada,
+      datosEspecificos: req.body.datosEspecificos,
+      croquisUrl: req.body.croquisUrl,
       materiales: req.body.materiales,
       // 🔑 SOLUCIÓN: Inyección y conversión explícita de las llaves relacionales
       plantelId: Number(req.body.plantelId),
-      institucionId: Number(req.body.institucionId)
+      ...(req.body.institucionId !== undefined && { institucionId: Number(req.body.institucionId) }),
     }
 
     // Asegúrate de que tu servicio reciba estas dos propiedades en el objeto
@@ -89,6 +92,28 @@ export async function obtenerSolicitudPorId(req: Request, res: Response): Promis
   }
 }
 
+export async function obtenerSolicitudPublica(req: Request, res: Response): Promise<void> {
+  try {
+    const id = Number(req.params.id)
+    if (!id) {
+      res.status(400).json({ error: 'ID inválido' })
+      return
+    }
+    const solicitud = await prisma.solicitudEvento.findUnique({
+      where: { id },
+      select: { nombreEvento: true },
+    })
+    if (!solicitud) {
+      res.status(404).json({ error: 'Solicitud no encontrada' })
+      return
+    }
+    res.json({ nombreEvento: solicitud.nombreEvento })
+  } catch (error) {
+    console.error('Error al obtener solicitud pública:', error)
+    res.status(500).json({ error: 'Error interno del servidor' })
+  }
+}
+
 export async function actualizarEstado(req: Request, res: Response): Promise<void> {
   try {
     const usuario = getUsuario(req)
@@ -119,6 +144,9 @@ export async function editarSolicitud(req: Request, res: Response): Promise<void
       ...req.body,
       plantelId: req.body.plantelId != null ? Number(req.body.plantelId) : undefined,
       institucionId: req.body.institucionId != null ? Number(req.body.institucionId) : undefined,
+      institucionPersonalizada: req.body.institucionPersonalizada,
+      datosEspecificos: req.body.datosEspecificos,
+      croquisUrl: req.body.croquisUrl,
     }
 
     const solicitudActual = await prisma.solicitudEvento.findUnique({
@@ -130,6 +158,7 @@ export async function editarSolicitud(req: Request, res: Response): Promise<void
 
     if (usuario.rol === 'USER') {
       await enviarCorreoModificacion({
+        solicitudId: result.id,
         folio: result.folio,
         nombreEvento: result.nombreEvento,
         fechaEvento: result.fechaEvento?.toISOString().split('T')[0] ?? '',
@@ -144,6 +173,7 @@ export async function editarSolicitud(req: Request, res: Response): Promise<void
 
       if (docente?.correo) {
         await enviarCorreoModificacion({
+          solicitudId: result.id,
           folio: result.folio,
           nombreEvento: result.nombreEvento,
           fechaEvento: result.fechaEvento?.toISOString().split('T')[0] ?? '',

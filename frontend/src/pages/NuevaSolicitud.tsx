@@ -2,13 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { QRCodeCanvas } from "qrcode.react";
 import {
-  FileText,
   Calendar,
   Clock,
-  MapPin,
   CheckSquare,
-  Layers,
   Users,
+  ChevronRight,
+  Upload,
 } from "lucide-react";
 import umadLogo from "../assets/logos/umad_logo.png";
 import prepaUmadLogo from "../assets/logos/prepa_umad_logo.png";
@@ -22,16 +21,27 @@ interface MaterialesForm {
   otro: string;
 }
 
-// Mapeo jerárquico estricto basado en tu seed.ts
+const generarFolio = () => `EVT-${Date.now()}`;
+
 const MAPEO_JERARQUICO: Record<string, { id: string; nombre: string }[]> = {
-  "1": [{ id: "1", nombre: "UMAD" }],
+  "1": [
+    { id: "7", nombre: "Ingenierías" },
+    { id: "8", nombre: "Arte y Humanidades" },
+    { id: "9", nombre: "Negocios, Comercio y Derecho" },
+    { id: "10", nombre: "Ciencias Sociales" },
+    { id: "otro", nombre: "Otro" },
+  ],
   "2": [
     { id: "2", nombre: "Prepa UMAD" },
-    { id: "3", nombre: "IMM" },
+    { id: "4", nombre: "IMM Secundaria" },
+    { id: "5", nombre: "IMM Primaria" },
+    { id: "6", nombre: "IMM Maternal" },
   ],
   "3": [
     { id: "2", nombre: "Prepa UMAD" },
-    { id: "3", nombre: "IMM" },
+    { id: "4", nombre: "IMM Secundaria" },
+    { id: "5", nombre: "IMM Primaria" },
+    { id: "6", nombre: "IMM Maternal" },
   ],
 };
 
@@ -65,8 +75,21 @@ export default function NuevaSolicitud() {
   const [idSolicitudCreada, setIdSolicitudCreada] = useState<number | null>(
     null,
   );
+  const [institucionOtro, setInstitucionOtro] = useState("");
   const [cargandoCatalogos, setCargandoCatalogos] = useState(true);
   const qrRef = useRef<HTMLDivElement>(null);
+
+  const [paso, setPaso] = useState(1);
+  const [apoyoEstacionamiento, setApoyoEstacionamiento] = useState("");
+  const [necesitaMantenimiento, setNecesitaMantenimiento] = useState("");
+  const [mantenimientoItems, setMantenimientoItems] = useState<string[]>([]);
+  const [cantMesas, setCantMesas] = useState(0);
+  const [cantSillas, setCantSillas] = useState(0);
+  const [cantPanos, setCantPanos] = useState(0);
+  const [croquisFile, setCroquisFile] = useState<File | null>(null);
+  const [gestionExternaItems, setGestionExternaItems] = useState<string[]>([]);
+  const [necesitaAudiovisuales, setNecesitaAudiovisuales] = useState("");
+  const [audiovisualItems, setAudiovisualItems] = useState<string[]>([]);
 
   useEffect(() => {
     async function cargarCatalogos() {
@@ -83,9 +106,10 @@ export default function NuevaSolicitud() {
 
   const manejarCambioPlantel = (pId: string) => {
     setPlantelId(pId);
+    setInstitucionOtro("");
     const opcionesValidas = MAPEO_JERARQUICO[pId] || [];
     if (opcionesValidas.length > 0) {
-      setInstitucionId(opcionesValidas[0].id);
+      setInstitucionId(opcionesValidas[0]!.id);
     } else {
       setInstitucionId("");
     }
@@ -127,13 +151,14 @@ export default function NuevaSolicitud() {
 
     setLoading(true);
     try {
-      const folio = `EVT-${Date.now()}`;
+      const folio = generarFolio();
 
       const normalizeTime = (timeStr: string) => {
         if (!timeStr) return "";
         if (timeStr.includes("AM") || timeStr.includes("PM")) {
           const [time, modifier] = timeStr.split(" ");
-          let [hours, minutes] = time.split(":");
+          const [hoursRaw, minutes] = time.split(":");
+          let hours = hoursRaw;
           if (hours === "12") hours = "00";
           if (modifier === "PM") {
             hours = (parseInt(hours, 10) + 12).toString();
@@ -147,7 +172,8 @@ export default function NuevaSolicitud() {
         folio,
         nombreEvento,
         plantelId: Number(plantelId),
-        institucionId: Number(institucionId),
+        institucionId: institucionId === "otro" ? 0 : Number(institucionId),
+        institucionPersonalizada: institucionId === "otro" ? institucionOtro.trim() : undefined,
         fechaEvento,
         horaInicio: normalizeTime(horaInicio),
         horaFin: normalizeTime(horaFin),
@@ -163,7 +189,18 @@ export default function NuevaSolicitud() {
         descripcion,
         objetivo,
         materiales,
-        generarQR: true, // <- REQUERIMIENTO 1: Siempre obligatorio en backend
+        datosEspecificos: {
+          apoyoEstacionamiento,
+          necesitaMantenimiento,
+          mantenimientoItems: necesitaMantenimiento === "si" ? mantenimientoItems : [],
+          cantMesas: necesitaMantenimiento === "si" ? cantMesas : 0,
+          cantSillas: necesitaMantenimiento === "si" ? cantSillas : 0,
+          cantPanos: necesitaMantenimiento === "si" ? cantPanos : 0,
+          gestionExternaItems: necesitaMantenimiento === "si" ? gestionExternaItems : [],
+          necesitaAudiovisuales,
+          audiovisualItems: necesitaAudiovisuales === "si" ? audiovisualItems : [],
+        },
+        generarQR: true,
       });
 
       setIdSolicitudCreada(respuesta.data.id);
@@ -182,6 +219,7 @@ export default function NuevaSolicitud() {
     setNombreEvento("");
     setPlantelId("1");
     setInstitucionId("1");
+    setInstitucionOtro("");
     setFechaEvento("");
     setHoraInicio("");
     setHoraFin("");
@@ -201,6 +239,17 @@ export default function NuevaSolicitud() {
       banners: false,
       otro: "",
     });
+    setPaso(1);
+    setApoyoEstacionamiento("");
+    setNecesitaMantenimiento("");
+    setMantenimientoItems([]);
+    setCantMesas(0);
+    setCantSillas(0);
+    setCantPanos(0);
+    setCroquisFile(null);
+    setGestionExternaItems([]);
+    setNecesitaAudiovisuales("");
+    setAudiovisualItems([]);
   }
 
   function descargarQR() {
@@ -215,6 +264,30 @@ export default function NuevaSolicitud() {
     }, 100);
   }
 
+  const datosGeneralesCompletos = () => {
+    return !!(
+      area && responsable && contacto && nombreEvento && fechaEvento && horaInicio && horaFin
+    );
+  };
+
+  const toggleMantenimientoItem = (item: string) => {
+    setMantenimientoItems((prev) =>
+      prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
+    );
+  };
+
+  const toggleGestionExternaItem = (item: string) => {
+    setGestionExternaItems((prev) =>
+      prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
+    );
+  };
+
+  const toggleAudiovisualItem = (item: string) => {
+    setAudiovisualItems((prev) =>
+      prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
+    );
+  };
+
   const institucionesDisponibles = MAPEO_JERARQUICO[plantelId] || [];
   const qrUrl = idSolicitudCreada
     ? `${window.location.origin}/evaluar/${idSolicitudCreada}`
@@ -223,32 +296,18 @@ export default function NuevaSolicitud() {
   return (
     <div
       style={{
-        maxWidth: "960px",
-        margin: "2rem auto",
-        padding: "2.5rem",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-        background: "linear-gradient(135deg, #F8FAFC 0%, #E2E8F0 100%)",
-        backgroundImage:
-          "linear-gradient(to right, rgba(37, 99, 235, 0.015) 1px, transparent 1px), linear-gradient(to bottom, rgba(37, 99, 235, 0.015) 1px, transparent 1px)",
-        backgroundSize: "40px 40px",
-        borderRadius: "24px",
+        maxWidth: "840px",
+        margin: "0 auto",
+        display: "flex",
+        flexDirection: "column",
+        gap: "1.75rem",
+        fontFamily: "Inter, system-ui, -apple-system, sans-serif",
         boxSizing: "border-box",
       }}
     >
-      <style>{`
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-        .section-card { animation: fadeInUp 0.4s ease forwards; }
-        .section-card:nth-child(2) { animation-delay: 0.08s; }
-        .section-card:nth-child(3) { animation-delay: 0.16s; }
-        .section-card:nth-child(4) { animation-delay: 0.24s; }
-        .section-card:nth-child(5) { animation-delay: 0.32s; }
-        .tigretrack-input:focus { outline: none; border-color: #2563EB !important; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12) !important; }
-      `}</style>
-
-      {/* HEADER DE LOGOS */}
+      {/* HEADER DE LOGOS + PROPÓSITO */}
       <header
         style={{
-          marginBottom: "2.5rem",
           display: "flex",
           flexDirection: "column",
           gap: "1.5rem",
@@ -258,10 +317,10 @@ export default function NuevaSolicitud() {
           style={{
             display: "flex",
             alignItems: "center",
-            background: COLORS.surface,
+            background: '#FFFFFF',
             borderRadius: "16px",
-            border: "1px solid rgba(226, 232, 240, 0.8)",
-            boxShadow: "0 10px 25px -5px rgba(15, 23, 42, 0.04)",
+            border: "1px solid #E2E8F0",
+            boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
             padding: "0.6rem 2rem",
             justifyContent: "space-between",
           }}
@@ -312,7 +371,7 @@ export default function NuevaSolicitud() {
             </div>
           ))}
         </div>
-        <div>
+        <div style={{ padding: "0 0.25rem" }}>
           <div
             style={{
               fontSize: "0.75rem",
@@ -336,8 +395,29 @@ export default function NuevaSolicitud() {
           >
             Nueva Solicitud de Cobertura
           </h1>
+          <p
+            style={{
+              margin: "0.5rem 0 0",
+              fontSize: "0.88rem",
+              color: "#64748B",
+              fontWeight: 400,
+              lineHeight: 1.6,
+              maxWidth: "580px",
+            }}
+          >
+            Complete todos los campos obligatorios para registrar una nueva solicitud de cobertura institucional. La información será evaluada por el área de comunicación.
+          </p>
         </div>
       </header>
+
+      <style>{`
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        .section-card { animation: fadeInUp 0.4s ease forwards; }
+        .section-card:nth-child(2) { animation-delay: 0.08s; }
+        .section-card:nth-child(3) { animation-delay: 0.16s; }
+        .section-card:nth-child(4) { animation-delay: 0.24s; }
+        .section-card:nth-child(5) { animation-delay: 0.32s; }
+      `}</style>
 
       {error && (
         <div
@@ -346,7 +426,6 @@ export default function NuevaSolicitud() {
             color: "#E11D48",
             padding: "1rem 1.5rem",
             borderRadius: "12px",
-            marginBottom: "2rem",
             border: "1px solid rgba(225, 29, 72, 0.15)",
             fontWeight: 600,
           }}
@@ -371,10 +450,70 @@ export default function NuevaSolicitud() {
           onSubmit={handleSubmit}
           style={{ display: "flex", flexDirection: "column", gap: "2rem" }}
         >
+          {/* PESTAÑAS TIPO PÍLDORA */}
+          <div
+            style={{
+              background: "#F1F5F9",
+              borderRadius: "40px",
+              padding: "5px",
+              display: "flex",
+              gap: "4px",
+              width: "fit-content",
+              maxWidth: "100%",
+            }}
+          >
+            <button
+              type="button"
+              disabled={paso === 1}
+              onClick={() => setPaso(1)}
+              style={{
+                flex: 1,
+                padding: "0.7rem 2rem",
+                borderRadius: "40px",
+                border: "none",
+                background: paso === 1 ? "#1E3A8A" : "transparent",
+                color: paso === 1 ? "#FFFFFF" : "#64748B",
+                fontWeight: 700,
+                fontSize: "0.88rem",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Datos Generales
+            </button>
+            <button
+              type="button"
+              disabled={!datosGeneralesCompletos()}
+              onClick={() => datosGeneralesCompletos() && setPaso(2)}
+              style={{
+                flex: 1,
+                padding: "0.7rem 2rem",
+                borderRadius: "40px",
+                border: "none",
+                background: paso === 2 ? "#1E3A8A" : "transparent",
+                color: paso === 2 ? "#FFFFFF" : datosGeneralesCompletos() ? "#334155" : "#94A3B8",
+                fontWeight: 700,
+                fontSize: "0.88rem",
+                cursor: datosGeneralesCompletos() ? "pointer" : "not-allowed",
+                transition: "all 0.2s ease",
+                whiteSpace: "nowrap",
+                opacity: datosGeneralesCompletos() ? 1 : 0.5,
+              }}
+            >
+              Datos Específicos
+            </button>
+          </div>
+
+          {/* PASO 1: DATOS GENERALES */}
+          {paso === 1 && (
+            <>
           {/* SECCIÓN 1: DATOS DEL SOLICITANTE */}
           <div className="section-card" style={sectionCardStyle}>
             <div style={sectionHeaderStyle}>
-              <Users size={18} color="#1E3A8A" />
+              <div style={iconWrapperStyle}>
+                <Users size={18} color="#1E3A8A" />
+              </div>
               <h2 style={sectionTitleStyle}>
                 1. Datos del Solicitante
               </h2>
@@ -398,6 +537,8 @@ export default function NuevaSolicitud() {
                   required
                   className="tigretrack-input"
                   style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   placeholder="Ej. Dirección de Ingeniería"
                 />
               </div>
@@ -410,6 +551,8 @@ export default function NuevaSolicitud() {
                   required
                   className="tigretrack-input"
                   style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   placeholder="Nombre completo"
                 />
               </div>
@@ -422,6 +565,8 @@ export default function NuevaSolicitud() {
                   required
                   className="tigretrack-input"
                   style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   placeholder="Ej. 222XXXXXXX"
                 />
               </div>
@@ -432,9 +577,8 @@ export default function NuevaSolicitud() {
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
                 gap: "1.25rem",
-                pt: "0.5rem",
+                paddingTop: "0.5rem",
                 borderTop: "1px dashed #E2E8F0",
-                paddingTop: "1.25rem",
               }}
             >
               <div>
@@ -447,6 +591,8 @@ export default function NuevaSolicitud() {
                   required
                   className="tigretrack-input"
                   style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                 >
                   <option value="1">UMAD Campus Puebla</option>
                   <option value="2">IMM Campus Centro</option>
@@ -463,6 +609,8 @@ export default function NuevaSolicitud() {
                   required
                   className="tigretrack-input"
                   style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                 >
                   {institucionesDisponibles.map((inst) => (
                     <option key={inst.id} value={inst.id}>
@@ -470,6 +618,18 @@ export default function NuevaSolicitud() {
                     </option>
                   ))}
                 </select>
+                {institucionId === "otro" && (
+                  <input
+                    type="text"
+                    value={institucionOtro}
+                    onChange={(e) => setInstitucionOtro(e.target.value)}
+                    placeholder="Especifica la institución u organización"
+                    className="tt-input"
+                    style={{ ...inputStyle, marginTop: "0.5rem" }}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -477,7 +637,9 @@ export default function NuevaSolicitud() {
           {/* SECCIÓN 2: INFORMACIÓN DEL EVENTO */}
           <div className="section-card" style={sectionCardStyle}>
             <div style={sectionHeaderStyle}>
-              <Calendar size={18} color="#1E3A8A" />
+              <div style={iconWrapperStyle}>
+                <Calendar size={18} color="#1E3A8A" />
+              </div>
               <h2 style={sectionTitleStyle}>
                 2. Información del Evento
               </h2>
@@ -499,6 +661,8 @@ export default function NuevaSolicitud() {
                   required
                   className="tigretrack-input"
                   style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   placeholder="Ej. Feria de Ciencias 2026"
                 />
               </div>
@@ -519,6 +683,8 @@ export default function NuevaSolicitud() {
                     required
                     className="tigretrack-input"
                     style={inputStyle}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   />
                 </div>
                 <div style={{ display: "flex", gap: "1rem" }}>
@@ -531,6 +697,8 @@ export default function NuevaSolicitud() {
                       required
                       className="tigretrack-input"
                       style={inputStyle}
+                      onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                      onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                     />
                   </div>
                   <div style={{ flex: 1 }}>
@@ -542,6 +710,8 @@ export default function NuevaSolicitud() {
                       required
                       className="tigretrack-input"
                       style={inputStyle}
+                      onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                      onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                     />
                   </div>
                 </div>
@@ -558,6 +728,8 @@ export default function NuevaSolicitud() {
                   required
                   className="tigretrack-input"
                   style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                 />
               </div>
 
@@ -579,6 +751,8 @@ export default function NuevaSolicitud() {
                     required
                     className="tigretrack-input"
                     style={inputStyle}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   >
                     <option value="UMAD">Instalaciones de la UMAD</option>
                     <option value="IMM Centro">Instalaciones IMM Centro</option>
@@ -601,6 +775,8 @@ export default function NuevaSolicitud() {
                     placeholder="Ej. Gimnasio Enrique C. Rebsamen, Aula Magna"
                     className="tigretrack-input"
                     style={inputStyle}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   />
                 </div>
               </div>
@@ -621,6 +797,8 @@ export default function NuevaSolicitud() {
                     placeholder="Ej. Alumnos de bachillerato, padres de familia"
                     className="tigretrack-input"
                     style={inputStyle}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   />
                 </div>
                 <div>
@@ -634,6 +812,8 @@ export default function NuevaSolicitud() {
                     placeholder="Ej. Rectoría, Directores de área"
                     className="tigretrack-input"
                     style={inputStyle}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   />
                 </div>
               </div>
@@ -648,6 +828,8 @@ export default function NuevaSolicitud() {
                   rows={3}
                   className="tigretrack-input"
                   style={{ ...inputStyle, resize: "vertical" }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                   placeholder="Describa brevemente el desarrollo de las actividades..."
                 />
               </div>
@@ -657,7 +839,9 @@ export default function NuevaSolicitud() {
           {/* SECCIÓN 3 */}
           <div className="section-card" style={sectionCardStyle}>
             <div style={sectionHeaderStyle}>
-              <Clock size={18} color="#1E3A8A" />
+              <div style={iconWrapperStyle}>
+                <Clock size={18} color="#1E3A8A" />
+              </div>
               <h2 style={sectionTitleStyle}>3. Objetivo de Comunicación</h2>
             </div>
             <div>
@@ -670,6 +854,8 @@ export default function NuevaSolicitud() {
                 rows={2}
                 className="tigretrack-input"
                 style={{ ...inputStyle, resize: "vertical" }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
                 placeholder="Ej. Destacar el liderazgo tecnológico de los alumnos..."
               />
             </div>
@@ -678,7 +864,9 @@ export default function NuevaSolicitud() {
           {/* SECCIÓN 4 (REDEFINIBLE PARA NUEVOS CAMPOS DEL CLIENTE) */}
           <div className="section-card" style={sectionCardStyle}>
             <div style={sectionHeaderStyle}>
-              <CheckSquare size={18} color="#1E3A8A" />
+              <div style={iconWrapperStyle}>
+                <CheckSquare size={18} color="#1E3A8A" />
+              </div>
               <h2 style={sectionTitleStyle}>4. Material Requerido</h2>
             </div>
             <div
@@ -774,6 +962,8 @@ export default function NuevaSolicitud() {
                 placeholder="Especificar..."
                 className="tigretrack-input"
                 style={{ ...inputStyle, flex: 1, minWidth: "200px" }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = '#1E3A8A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.1)'; e.currentTarget.style.background = '#FFFFFF'; }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#F8FAFC'; }}
               />
             </div>
             {/* NOTA: LOS CAMPOS EXTRA QUE MANDE TU CLIENTE SE INYECTARÁN DIRECTAMENTE EN ESTA TARJETA */}
@@ -843,29 +1033,270 @@ export default function NuevaSolicitud() {
             </div>
           </div>
 
+          <div style={{ textAlign: "center" }}>
+            <button
+              type="button"
+              onClick={() => setPaso(2)}
+              style={{
+                padding: "0.75rem 2.5rem",
+                background: "#1E3A8A",
+                color: "#FFFFFF",
+                border: "none",
+                borderRadius: "8px",
+                fontSize: "0.95rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                boxShadow: "0 4px 12px rgba(30, 58, 138, 0.3)",
+                transition: "all 0.2s ease",
+                letterSpacing: "0.02em",
+                lineHeight: 1,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.5rem",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#162d6e"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "#1E3A8A"}
+            >
+              Siguiente <ChevronRight size={18} />
+            </button>
+          </div>
+            </>
+          )}
+
+          {/* PASO 2: DATOS ESPECÍFICOS */}
+          {paso === 2 && (
+            <>
+          {/* SECCIÓN SEGURIDAD */}
+          <div className="section-card" style={sectionCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <div style={iconWrapperStyle}>
+                <Users size={18} color="#1E3A8A" />
+              </div>
+              <h2 style={sectionTitleStyle}>Seguridad</h2>
+            </div>
+            <label style={labelStyle}>
+              Apoyo para el acceso y estacionamiento para invitados especiales
+            </label>
+            <div style={{ display: "flex", gap: "2rem", marginTop: "0.5rem" }}>
+              {["si", "no"].map((v) => (
+                <label key={v} style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>
+                  <input
+                    type="radio"
+                    name="apoyoEstacionamiento"
+                    value={v}
+                    checked={apoyoEstacionamiento === v}
+                    onChange={(e) => setApoyoEstacionamiento(e.target.value)}
+                    style={{ width: "18px", height: "18px", accentColor: "#1E3A8A", cursor: "pointer" }}
+                  />
+                  {v === "si" ? "Sí" : "No"}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* SECCIÓN MANTENIMIENTO */}
+          <div className="section-card" style={sectionCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <div style={iconWrapperStyle}>
+                <CheckSquare size={18} color="#1E3A8A" />
+              </div>
+              <h2 style={sectionTitleStyle}>Mantenimiento</h2>
+            </div>
+            <label style={labelStyle}>
+              ¿Necesitarás apoyo y/o equipo del área de mantenimiento?
+            </label>
+            <div style={{ display: "flex", gap: "2rem", marginTop: "0.5rem" }}>
+              {["si", "no"].map((v) => (
+                <label key={v} style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>
+                  <input
+                    type="radio"
+                    name="necesitaMantenimiento"
+                    value={v}
+                    checked={necesitaMantenimiento === v}
+                    onChange={(e) => setNecesitaMantenimiento(e.target.value)}
+                    style={{ width: "18px", height: "18px", accentColor: "#1E3A8A", cursor: "pointer" }}
+                  />
+                  {v === "si" ? "Sí" : "No"}
+                </label>
+              ))}
+            </div>
+
+            {necesitaMantenimiento === "si" && (
+              <div style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                <div>
+                  <label style={labelStyle}>Equipo necesario</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.75rem", marginTop: "0.5rem" }}>
+                    {["Pódium", "Mesas", "Sillas", "Paños", "Mesa para proyector", "Extensión", "Otro"].map((item) => (
+                      <div key={item}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 500, fontSize: "0.85rem", color: "#334155" }}>
+                          <input
+                            type="checkbox"
+                            checked={mantenimientoItems.includes(item)}
+                            onChange={() => toggleMantenimientoItem(item)}
+                            style={{ width: "16px", height: "16px", accentColor: "#1E3A8A", cursor: "pointer" }}
+                          />
+                          {item}
+                        </label>
+                        {(item === "Mesas" || item === "Sillas" || item === "Paños") && mantenimientoItems.includes(item) && (
+                          <input
+                            type="number"
+                            min={0}
+                            placeholder="Cant."
+                            value={
+                              item === "Mesas" ? cantMesas :
+                              item === "Sillas" ? cantSillas :
+                              cantPanos
+                            }
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              if (item === "Mesas") setCantMesas(val);
+                              else if (item === "Sillas") setCantSillas(val);
+                              else setCantPanos(val);
+                            }}
+                            style={{ ...inputStyle, marginTop: "0.3rem", width: "80px", padding: "0.35rem 0.5rem", fontSize: "0.8rem" }}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Croquis de acomodo</label>
+                  <div
+                    style={{
+                      marginTop: "0.5rem",
+                      border: "2px dashed #CBD5E1",
+                      borderRadius: "12px",
+                      padding: "1.5rem",
+                      textAlign: "center",
+                      cursor: "pointer",
+                      background: "#F8FAFC",
+                      transition: "border-color 0.2s",
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const file = e.dataTransfer.files[0];
+                      if (file && file.size <= 10 * 1024 * 1024) setCroquisFile(file);
+                    }}
+                    onClick={() => document.getElementById("croquis-input")?.click()}
+                  >
+                    <Upload size={28} color="#94A3B8" style={{ marginBottom: "0.5rem" }} />
+                    <p style={{ margin: 0, fontSize: "0.85rem", color: "#64748B", fontWeight: 500 }}>
+                      {croquisFile ? croquisFile.name : "Arrastra o haz clic para subir el croquis (máx. 10 MB)"}
+                    </p>
+                    <input
+                      id="croquis-input"
+                      type="file"
+                      accept="image/*,.pdf"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 10 * 1024 * 1024) {
+                            alert("El archivo excede el tamaño máximo de 10 MB");
+                            return;
+                          }
+                          setCroquisFile(file);
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Mobiliario de Gestión Externa</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.75rem", marginTop: "0.5rem" }}>
+                    {["Sillones sala de maestros", "Sillones CIC", "Mamparas", "Letras logo UMAD"].map((item) => (
+                      <label key={item} style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 500, fontSize: "0.85rem", color: "#334155" }}>
+                        <input
+                          type="checkbox"
+                          checked={gestionExternaItems.includes(item)}
+                          onChange={() => toggleGestionExternaItem(item)}
+                          style={{ width: "16px", height: "16px", accentColor: "#1E3A8A", cursor: "pointer" }}
+                        />
+                        {item}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* SECCIÓN AUDIOVISUALES */}
+          <div className="section-card" style={sectionCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <div style={iconWrapperStyle}>
+                <Clock size={18} color="#1E3A8A" />
+              </div>
+              <h2 style={sectionTitleStyle}>Audiovisuales</h2>
+            </div>
+            <label style={labelStyle}>
+              ¿Necesitarás apoyo y/o equipo del área de medios audiovisuales?
+            </label>
+            <div style={{ display: "flex", gap: "2rem", marginTop: "0.5rem" }}>
+              {["si", "no"].map((v) => (
+                <label key={v} style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>
+                  <input
+                    type="radio"
+                    name="necesitaAudiovisuales"
+                    value={v}
+                    checked={necesitaAudiovisuales === v}
+                    onChange={(e) => setNecesitaAudiovisuales(e.target.value)}
+                    style={{ width: "18px", height: "18px", accentColor: "#1E3A8A", cursor: "pointer" }}
+                  />
+                  {v === "si" ? "Sí" : "No"}
+                </label>
+              ))}
+            </div>
+
+            {necesitaAudiovisuales === "si" && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.75rem", marginTop: "1.25rem" }}>
+                {["Sonido", "Audio para computadora", "Micrófono", "Pantalla", "Otros"].map((item) => (
+                  <label key={item} style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 500, fontSize: "0.85rem", color: "#334155" }}>
+                    <input
+                      type="checkbox"
+                      checked={audiovisualItems.includes(item)}
+                      onChange={() => toggleAudiovisualItem(item)}
+                      style={{ width: "16px", height: "16px", accentColor: "#1E3A8A", cursor: "pointer" }}
+                    />
+                    {item}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div style={{ textAlign: "center", marginBottom: "2rem" }}>
             <button
               type="submit"
               disabled={loading}
               style={{
-                padding: "1rem 3.5rem",
+                padding: "0.75rem 2rem",
                 background: loading ? "#94A3B8" : "#1E3A8A",
                 color: COLORS.white,
                 border: "none",
-                borderRadius: "12px",
-                fontSize: "1.05rem",
-                fontWeight: 700,
+                borderRadius: "8px",
+                fontSize: "0.95rem",
+                fontWeight: 600,
                 cursor: loading ? "not-allowed" : "pointer",
-                boxShadow: "0 10px 20px -5px rgba(30, 58, 138, 0.3)",
+                boxShadow: loading ? "none" : "0 4px 12px rgba(30, 58, 138, 0.3)",
                 transition: "all 0.2s ease",
                 letterSpacing: "0.02em",
+                lineHeight: 1,
               }}
+              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = "#162d6e"; }}
+              onMouseLeave={(e) => { if (!loading) e.currentTarget.style.background = "#1E3A8A"; }}
             >
               {loading
                 ? "Procesando Registro..."
-                : "Registrar Solicitud en TigreTrack"}
+                : "Registrar Solicitud"}
             </button>
           </div>
+            </>
+          )}
         </form>
       )}
 
@@ -1001,20 +1432,20 @@ export default function NuevaSolicitud() {
 }
 
 const sectionCardStyle: React.CSSProperties = {
-  background: COLORS.surface,
+  background: '#FFFFFF',
   padding: "2rem",
-  borderRadius: "20px",
-  border: "1px solid rgba(226, 232, 240, 0.8)",
-  boxShadow: "0 15px 35px -10px rgba(15, 23, 42, 0.04)",
+  borderRadius: "16px",
+  border: "1px solid #E2E8F0",
+  boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
   boxSizing: "border-box",
 };
 const sectionHeaderStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "0.6rem",
+  gap: "0.75rem",
   marginBottom: "1.5rem",
+  paddingBottom: "1rem",
   borderBottom: "1px solid #F1F5F9",
-  paddingBottom: "0.75rem",
 };
 const sectionTitleStyle: React.CSSProperties = {
   margin: 0,
@@ -1024,23 +1455,32 @@ const sectionTitleStyle: React.CSSProperties = {
 };
 const labelStyle: React.CSSProperties = {
   display: "block",
-  fontWeight: 700,
-  marginBottom: "0.45rem",
-  fontSize: "0.82rem",
-  color: "#475569",
-  textTransform: "uppercase",
-  letterSpacing: "0.03em",
+  fontWeight: 600,
+  marginBottom: "4px",
+  fontSize: "0.8rem",
+  color: "#374151",
 };
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "0.65rem 0.85rem",
-  borderRadius: "10px",
-  border: "1px solid #CBD5E1",
-  fontSize: "0.9rem",
+  padding: "0.625rem 0.875rem",
+  borderRadius: "8px",
+  border: "1.5px solid #E2E8F0",
+  fontSize: "0.875rem",
   fontWeight: 500,
   color: "#0F172A",
-  backgroundColor: "#FFFFFF",
+  backgroundColor: "#F8FAFC",
   fontFamily: "inherit",
   boxSizing: "border-box",
-  transition: "all 0.2s ease",
+  transition: "border-color 0.15s, box-shadow 0.15s, background 0.15s",
+  outline: "none",
+};
+const iconWrapperStyle: React.CSSProperties = {
+  width: "36px",
+  height: "36px",
+  borderRadius: "8px",
+  background: "rgba(30,58,138,0.08)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexShrink: 0,
 };

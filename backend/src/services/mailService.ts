@@ -44,7 +44,22 @@ const transport = nodemailer.createTransport({
   },
 })
 
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+
+function accionesSolicitudHtml(solicitudId: number): string {
+  return `
+    <div style="margin-top:24px;padding-top:20px;border-top:1px solid #e2e8f0;">
+      <p style="margin:0 0 14px;font-weight:700;color:#0f172a;font-size:14px;">Acciones de la Solicitud</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <a href="${FRONTEND_URL}/solicitudes/detalle?id=${solicitudId}" style="display:inline-block;background:#1e3a8a;color:#ffffff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;">Ver Solicitud Completa</a>
+        <a href="${FRONTEND_URL}/solicitudes/cancelar?id=${solicitudId}" style="display:inline-block;background:#dc2626;color:#ffffff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;">Cancelar Solicitud</a>
+      </div>
+    </div>
+  `
+}
+
 interface DatosSolicitud {
+  solicitudId: number
   folio: string
   nombreEvento: string
   fechaEvento: string
@@ -65,6 +80,7 @@ export async function enviarAlertaNuevaSolicitud(datos: DatosSolicitud): Promise
     <p><strong>Responsable:</strong> ${datos.responsableNombre}</p>
     <p><strong>Departamento:</strong> ${datos.departamentoSolicitante}</p>
     <p><strong>Contacto:</strong> ${datos.contacto}</p>
+    ${accionesSolicitudHtml(datos.solicitudId)}
   `
 
   const html = plantillaCorreoWrapper('Nueva solicitud de cobertura registrada', cuerpo)
@@ -90,6 +106,7 @@ export async function enviarAlertaCancelacionTardia(datos: DatosSolicitud & { ta
     <p><strong>Hora:</strong> ${datos.horaInicio}</p>
     <p><strong>Responsable:</strong> ${datos.responsableNombre}</p>
     <p><strong>Auditoría activada:</strong> ${datos.tardia ? 'Sí — cancelación con menos de 48h de anticipación' : 'No'}</p>
+    ${accionesSolicitudHtml(datos.solicitudId)}
   `
 
   const html = plantillaCorreoWrapper('Alerta de cancelación tardía', cuerpo)
@@ -104,6 +121,7 @@ export async function enviarAlertaCancelacionTardia(datos: DatosSolicitud & { ta
 
 interface DatosNotificacionEstado {
   destinatario: string
+  solicitudId: number
   folio: string
   nombreEvento: string
   fechaEvento: string
@@ -132,6 +150,7 @@ export async function enviarCorreoAprobacion(datos: DatosNotificacionEstado): Pr
       <a href="http://localhost:5173/evaluar/${datos.folio}" style="display:inline-block;background:#f59e0b;color:#ffffff;padding:10px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;">Evaluar servicio</a>
     </div>
 
+    ${accionesSolicitudHtml(datos.solicitudId)}
     <p>Atentamente,<br/>Sistema de Eventos UMAD</p>
   `
 
@@ -149,6 +168,7 @@ export async function enviarCorreoAprobacion(datos: DatosNotificacionEstado): Pr
 
 interface DatosRecordatorio {
   destinatario: string
+  solicitudId: number
   folio: string
   nombreEvento: string
   fechaEvento: string
@@ -173,6 +193,7 @@ export async function enviarCorreoRecordatorio(datos: DatosRecordatorio): Promis
     <p><strong>Fecha del evento:</strong> ${datos.fechaEvento}</p>
     <p><strong>Hora de inicio:</strong> ${datos.horaInicio}</p>
     <p><strong>Responsable:</strong> ${datos.responsableNombre}</p>
+    ${accionesSolicitudHtml(datos.solicitudId)}
     <p>Atentamente,<br/>Sistema de Eventos UMAD</p>
   `
 
@@ -203,6 +224,7 @@ export async function enviarCorreoCancelacion(datos: DatosNotificacionEstado): P
     <p><strong>Estado final:</strong> Cancelada</p>
     ${motivoHtml}
     <p>Para cualquier aclaración, favor de contactar al departamento correspondiente.</p>
+    ${accionesSolicitudHtml(datos.solicitudId)}
     <p>Atentamente,<br/>Sistema de Eventos UMAD</p>
   `
 
@@ -219,6 +241,7 @@ export async function enviarCorreoCancelacion(datos: DatosNotificacionEstado): P
 }
 
 interface DatosModificacion {
+  solicitudId: number
   folio: string
   nombreEvento: string
   fechaEvento: string
@@ -239,6 +262,7 @@ export async function enviarCorreoModificacion(datos: DatosModificacion): Promis
     <p><strong>Hora de inicio:</strong> ${datos.horaInicio}</p>
     <p><strong>Responsable:</strong> ${datos.responsableNombre}</p>
     <p><strong>Modificado por:</strong> ${datos.editadoPor === 'admin' ? 'Administrador' : 'Solicitante'}</p>
+    ${accionesSolicitudHtml(datos.solicitudId)}
   `
 
   const html = plantillaCorreoWrapper('Modificación de solicitud de cobertura', cuerpo)

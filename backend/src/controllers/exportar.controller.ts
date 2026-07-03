@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import PDFDocument from "pdfkit";
 import ExcelJS from "exceljs";
 import { ChartJSNodeCanvas } from "chartjs-node-canvas";
+import prisma from "../config/db.js";
 import { obtenerDashboardEstadisticas } from "../services/estadisticas.service.js";
 import type { DashboardEstadisticas } from "../types/estadisticas.js";
 
@@ -514,6 +515,73 @@ export async function exportarPDF(
       .stroke();
     doc.moveDown(1);
 
+    // ════════════════════════════════════════════════════════
+    //  DETALLE DE SOLICITUDES (con institución detallada)
+    // ════════════════════════════════════════════════════════
+
+    const solicitudesWhere: Record<string, unknown> = {};
+    if (plantel && plantel !== "todos") solicitudesWhere.plantel = { nombre: plantel };
+    if (institucion && institucion !== "todos") solicitudesWhere.institucion = { nombre: institucion };
+    if (fechaInicio) solicitudesWhere.fechaSolicitud = { gte: new Date(fechaInicio) };
+    if (fechaFin) {
+      solicitudesWhere.fechaSolicitud = {
+        ...(solicitudesWhere.fechaSolicitud as Record<string, unknown> || {}),
+        lte: new Date(fechaFin + "T23:59:59.999Z"),
+      };
+    }
+
+    const solicitudesDetalle = await prisma.solicitudEvento.findMany({
+      where: solicitudesWhere,
+      include: {
+        plantel: { select: { nombre: true } },
+        institucion: { select: { nombre: true } },
+      },
+      orderBy: { fechaSolicitud: "desc" },
+      take: 50,
+    });
+
+    if (solicitudesDetalle.length > 0) {
+      if (doc.y > doc.page.height - 200) doc.addPage();
+
+      doc.fontSize(15).fillColor(AZUL).text("Detalle de Solicitudes");
+      doc.moveDown(0.3);
+
+      const detCol1 = 50;
+      const detCol2 = 110;
+      const detCol3 = 220;
+      const detCol4 = 400;
+
+      const detTop = doc.y;
+      doc.fontSize(8).fillColor(ROJO);
+      doc.text("Folio", detCol1, detTop);
+      doc.text("Evento", detCol2, detTop, { width: 100 });
+      doc.text("Institución", detCol3, detTop, { width: 170 });
+      doc.text("Estado", detCol4, detTop, { width: 80, align: "right" });
+
+      let detY = detTop + 14;
+      doc.moveTo(50, detY - 4).lineTo(545, detY - 4).strokeColor("#E2E8F0").stroke();
+
+      doc.fontSize(8).fillColor("#0F172A");
+      for (const sol of solicitudesDetalle) {
+        if (detY > doc.page.height - 60) {
+          doc.addPage();
+          detY = doc.y;
+        }
+        const nombreInstitucion = sol.institucion?.nombre === "Otro"
+          ? (sol.institucionPersonalizada ?? "Otro")
+          : (sol.institucion?.nombre ?? "—");
+        doc.text(sol.folio, detCol1, detY);
+        doc.text(sol.nombreEvento, detCol2, detY, { width: 100 });
+        doc.text(nombreInstitucion, detCol3, detY, { width: 170 });
+        doc.text(sol.estado, detCol4, detY, { width: 80, align: "right" });
+        detY += 14;
+      }
+
+      doc.y = detY + 4;
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor("#E2E8F0").stroke();
+      doc.moveDown(0.6);
+    }
+
     // ── FOOTER ──
     doc
       .fontSize(8)
@@ -546,6 +614,25 @@ export async function exportarExcel(
       ...(institucion ? { institucion } : {}),
       ...(fechaInicio ? { fechaInicio } : {}),
       ...(fechaFin ? { fechaFin } : {}),
+    });
+
+    const solicitudesWhereEx: Record<string, unknown> = {};
+    if (plantel && plantel !== "todos") solicitudesWhereEx.plantel = { nombre: plantel };
+    if (institucion && institucion !== "todos") solicitudesWhereEx.institucion = { nombre: institucion };
+    if (fechaInicio) solicitudesWhereEx.fechaSolicitud = { gte: new Date(fechaInicio) };
+    if (fechaFin) {
+      solicitudesWhereEx.fechaSolicitud = {
+        ...(solicitudesWhereEx.fechaSolicitud as Record<string, unknown> || {}),
+        lte: new Date(fechaFin + "T23:59:59.999Z"),
+      };
+    }
+    const solicitudesExcel = await prisma.solicitudEvento.findMany({
+      where: solicitudesWhereEx,
+      include: {
+        plantel: { select: { nombre: true } },
+        institucion: { select: { nombre: true } },
+      },
+      orderBy: { fechaSolicitud: "desc" },
     });
 
     const workbook = new ExcelJS.Workbook();
@@ -720,6 +807,41 @@ export async function exportarExcel(
       to: { row: data.porMes.length + 1, column: 2 },
     };
     sheet3.views = [{ state: "frozen", ySplit: 1 }];
+
+    // ════════════════════════════════════════════════════════
+    //  HOJA 5 – DETALLE DE SOLICITUDES
+    // ════════════════════════════════════════════════════════
+    const sheet4 = workbook.addWorksheet("Detalle de Solicitudes");
+    sheet4.columns = [
+      { header: "Folio", key: "folio", width: 18 },
+      { header: "Evento", key: "evento", width: 40 },
+      { header: "Fecha Evento", key: "fechaEvento", width: 18 },
+      { header: "Institución", key: "institucion", width: 25 },
+      { header: "Institución Personalizada", key: "institucionPersonalizada", width: 30 },
+      { header: "Plantel", key: "plantel", width: 25 },
+      { header: "Estado", key: "estado", width: 16 },
+    ];
+
+    sheet4.getRow(1).eachCell((cell) => { cell.style = headerStyle; });
+
+    solicitudesExcel.forEach((sol) => {
+      const r = sheet4.addRow({
+        folio: sol.folio,
+        evento: sol.nombreEvento,
+        fechaEvento: sol.fechaEvento ? formatDate(sol.fechaEvento.toISOString()) : "",
+        institucion: sol.institucion?.nombre ?? "—",
+        institucionPersonalizada: sol.institucionPersonalizada ?? "N/A",
+        plantel: sol.plantel?.nombre ?? "—",
+        estado: sol.estado,
+      });
+      r.eachCell((cell) => { cell.style = cellStyle; });
+    });
+
+    sheet4.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: solicitudesExcel.length + 1, column: 7 },
+    };
+    sheet4.views = [{ state: "frozen", ySplit: 1 }];
 
     res.setHeader(
       "Content-Type",

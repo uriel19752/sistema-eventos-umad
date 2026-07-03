@@ -1,8 +1,10 @@
 import { Router } from 'express'
 import { authMiddleware } from '../middleware/auth.middleware.js'
-import { obtenerSolicitudes, obtenerSolicitudPorId, crearSolicitud, actualizarEstado, editarSolicitud } from '../controllers/solicitud.controller.js'
+import { obtenerSolicitudes, obtenerSolicitudPorId, crearSolicitud, actualizarEstado, editarSolicitud, obtenerSolicitudPublica } from '../controllers/solicitud.controller.js'
 
 const router = Router()
+
+router.get('/publico/:id', obtenerSolicitudPublica)
 
 router.use(authMiddleware)
 

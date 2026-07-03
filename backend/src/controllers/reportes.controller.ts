@@ -228,7 +228,7 @@ export async function exportarPDF(req: Request, res: Response): Promise<void> {
       .text("Generado automáticamente por TigreTrack", { align: "center" });
 
     doc.end();
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error al exportar PDF de calidad:", error);
     res.status(500).json({ error: "Error al generar el PDF" });
   }
@@ -455,7 +455,7 @@ export async function exportarExcel(req: Request, res: Response): Promise<void> 
     );
 
     await workbook.xlsx.write(res);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error al exportar Excel de calidad:", error);
     res.status(500).json({ error: "Error al generar el Excel" });
   }

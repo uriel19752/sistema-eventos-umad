@@ -129,7 +129,7 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
 
   const whereSQL = Prisma.join(sqlConditions, " AND ");
 
-  const [planteles, instituciones, eventosPorMes, promediosEncuesta] = await Promise.all([
+  const [planteles, instituciones, eventosPorMes, promediosEncuesta, materiales] = await Promise.all([
     prisma.plantel.findMany({
       include: {
         _count: {
@@ -169,6 +169,17 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
       },
       _count: { id: true },
     }),
+
+    prisma.$queryRaw<Array<{ tipo: string; total: bigint }>>`
+      SELECT ms.tipo_material::text AS tipo, COUNT(*)::int AS total
+      FROM materiales_solicitados ms
+      INNER JOIN solicitudes_eventos se ON ms.solicitud_id = se.id
+      LEFT JOIN planteles p ON se.plantel_id = p.id
+      LEFT JOIN instituciones i ON se.institucion_id = i.id
+      WHERE ${whereSQL}
+      GROUP BY ms.tipo_material
+      ORDER BY total DESC
+    `,
   ]);
 
   for (const row of eventosPorMes) {
@@ -195,6 +206,8 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
   const porInstitucion = instituciones
     .map((i) => ({ nombre: i.nombre, total: i._count.solicitudEventos }))
     .sort((a, b) => b.total - a.total);
+
+  const porMaterial = materiales.map((m) => ({ tipo: m.tipo, total: Number(m.total) }));
 
   /*
    * ── 2. TENDENCIAS MENSUALES ──
@@ -322,6 +335,102 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
     totalEncuestas: promediosEncuesta._count.id,
   };
 
+  // ── 5. CSAT: DISTRIBUCIÓN DE ESTRELLAS ──
+  const distribucionRaw = await prisma.encuestaSatisfaccion.groupBy({
+    by: ['satisfaccionGral'],
+    where: { solicitud: baseWhere },
+    _count: true,
+  });
+
+  const distribucionEstrellas = [5, 4, 3, 2, 1].map(estrellas => {
+    const found = distribucionRaw.find(d => d.satisfaccionGral === estrellas);
+    return { estrellas, total: found?._count ?? 0 };
+  });
+
+  // ── 6. CSAT: VARIACIÓN RESPECTO AL PERIODO ANTERIOR ──
+  let prevDateStart: Date;
+  let prevDateEnd: Date;
+
+  if (filtros?.fechaInicio) {
+    const currentStart = new Date(filtros.fechaInicio);
+    const currentEnd = filtros.fechaFin ? new Date(filtros.fechaFin) : new Date();
+    const periodLen = currentEnd.getTime() - currentStart.getTime();
+    prevDateEnd = new Date(currentStart);
+    prevDateStart = new Date(prevDateEnd.getTime() - periodLen);
+  } else {
+    prevDateEnd = new Date(today.getFullYear(), today.getMonth(), 1);
+    prevDateStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  }
+
+  const prevWhere: Record<string, unknown> = {
+    fechaSolicitud: { gte: prevDateStart, lt: prevDateEnd },
+  };
+  if (filtros?.plantel && filtros.plantel !== "todos") {
+    prevWhere.plantel = { nombre: filtros.plantel };
+  }
+  if (filtros?.institucion && filtros.institucion !== "todos") {
+    prevWhere.institucion = { nombre: filtros.institucion };
+  }
+
+  const prevPromedios = await prisma.encuestaSatisfaccion.aggregate({
+    where: { solicitud: prevWhere },
+    _avg: {
+      puntualidad: true,
+      calidadTecnica: true,
+      atencionStaff: true,
+      satisfaccionGral: true,
+    },
+    _count: { id: true },
+  });
+
+  const currentGlobalAvg = (
+    promediosFormateados.puntualidad +
+    promediosFormateados.calidadTecnica +
+    promediosFormateados.atencionStaff +
+    promediosFormateados.satisfaccionGral
+  ) / 4;
+
+  const prevGlobalAvg = prevPromedios._count.id > 0
+    ? (
+        (prevPromedios._avg.puntualidad ?? 0) +
+        (prevPromedios._avg.calidadTecnica ?? 0) +
+        (prevPromedios._avg.atencionStaff ?? 0) +
+        (prevPromedios._avg.satisfaccionGral ?? 0)
+      ) / 4
+    : 0;
+
+  const variacionCSAT = {
+    actual: Number(currentGlobalAvg.toFixed(2)),
+    anterior: Number(prevGlobalAvg.toFixed(2)),
+    diferencia: Number((currentGlobalAvg - prevGlobalAvg).toFixed(2)),
+  };
+
+  // ── 7. CSAT: DIAGNÓSTICO AUTOMÁTICO ──
+  let nivel: string, mensaje: string, color: string;
+  if (currentGlobalAvg >= 4.5) {
+    nivel = 'Excelente';
+    mensaje = 'La calidad del servicio supera las expectativas. Se mantiene un nivel óptimo de satisfacción.';
+    color = '#16A34A';
+  } else if (currentGlobalAvg >= 3.5) {
+    nivel = 'Bueno';
+    mensaje = 'El servicio es satisfactorio. Existen oportunidades menores de mejora en algunos aspectos.';
+    color = '#2563EB';
+  } else if (currentGlobalAvg >= 2.5) {
+    nivel = 'Aceptable';
+    mensaje = 'El servicio cumple con lo mínimo esperado. Se recomienda implementar mejoras puntuales.';
+    color = '#F59E0B';
+  } else if (currentGlobalAvg >= 1.5) {
+    nivel = 'Deficiente';
+    mensaje = 'El servicio presenta deficiencias notables. Se requiere una revisión profunda de los procesos.';
+    color = '#F97316';
+  } else {
+    nivel = 'Crítico';
+    mensaje = 'El servicio no cumple con los estándares mínimos de calidad. Se necesita una intervención inmediata.';
+    color = '#DC2626';
+  }
+
+  const diagnostico = { nivel, mensaje, color };
+
   return {
     totalSolicitudes,
     pendientes,
@@ -330,10 +439,14 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
     canceladas,
     porPlantel,
     porInstitucion,
+    porMaterial,
     porMes,
     tendencias,
     insights,
     promediosEncuesta: promediosFormateados,
+    diagnostico,
+    variacionCSAT,
+    distribucionEstrellas,
   };
 }
 
