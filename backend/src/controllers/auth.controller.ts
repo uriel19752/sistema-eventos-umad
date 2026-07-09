@@ -1,36 +1,68 @@
 import type { Request, Response } from 'express'
-import bcrypt from 'bcrypt'
-import prisma from '../config/db.js'
-import { generarToken } from '../middleware/auth.middleware.js'
+import { registrarUsuario, loginLocal, loginConGoogle } from '../services/auth.service.js'
 
-export async function login(req: Request, res: Response): Promise<void> {
+export async function signupHandler(req: Request, res: Response): Promise<void> {
   try {
-    const { correo, password } = req.body
+    const { nombre, email, password } = req.body
 
-    if (!correo || !password) {
+    if (!nombre || !email || !password) {
+      res.status(400).json({ error: 'Nombre, correo y contraseña son requeridos' })
+      return
+    }
+
+    const usuario = await registrarUsuario(nombre, email, password)
+    res.status(201).json(usuario)
+  } catch (error: unknown) {
+    const err = error as Error & { statusCode?: number }
+    if (err.statusCode === 400) {
+      res.status(400).json({ error: err.message })
+      return
+    }
+    console.error('Error en signup:', err)
+    res.status(500).json({ error: 'Error interno del servidor' })
+  }
+}
+
+export async function loginHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { email, password } = req.body
+
+    if (!email || !password) {
       res.status(400).json({ error: 'Correo y contraseña requeridos' })
       return
     }
 
-    const usuario = await prisma.usuario.findUnique({ where: { correo } })
+    const resultado = await loginLocal(email, password)
+    res.json(resultado)
+  } catch (error: unknown) {
+    const err = error as Error & { statusCode?: number }
+    if (err.statusCode === 401) {
+      res.status(401).json({ error: err.message })
+      return
+    }
+    console.error('Error en login:', err)
+    res.status(500).json({ error: 'Error interno del servidor' })
+  }
+}
 
-    if (!usuario) {
-      res.status(401).json({ error: 'Credenciales inválidas' })
+export async function googleLoginHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { token } = req.body
+
+    if (!token) {
+      res.status(400).json({ error: 'Token de Google requerido' })
       return
     }
 
-    const valida = await bcrypt.compare(password, usuario.password)
-
-    if (!valida) {
-      res.status(401).json({ error: 'Credenciales inválidas' })
+    const resultado = await loginConGoogle(token)
+    res.json(resultado)
+  } catch (error: unknown) {
+    const err = error as Error & { statusCode?: number }
+    if (err.statusCode === 401) {
+      res.status(401).json({ error: err.message })
       return
     }
-
-    const token = generarToken({ id: usuario.id, correo: usuario.correo, rol: usuario.rol })
-
-    res.json({ id: usuario.id, correo: usuario.correo, rol: usuario.rol, token })
-  } catch (error) {
-    console.error('Error en login:', error)
+    console.error('Error en login con Google:', err)
     res.status(500).json({ error: 'Error interno del servidor' })
   }
 }

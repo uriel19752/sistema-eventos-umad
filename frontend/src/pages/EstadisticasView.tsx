@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { COLORS } from '../theme/colors'
 import SatisfaccionCalidad, { type DiagnosticoCSAT, type VariacionCSAT, type DistribucionEstrella } from '../components/SatisfaccionCalidad'
+import { PdfReport, captureCharts, formatShortDate, hexToRgb, PDF_COLORS, ExcelReport, excelFormatShortDate, type ColumnDef } from '../export'
 
 const STATUS_COLORS: Record<string, string> = {
   Pendiente: '#F59E0B',
@@ -168,6 +169,22 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
   }
 
   const handleExport = async (tipo: 'pdf' | 'excel') => {
+    if (tipo === 'pdf' && subTab !== 'satisfacion') {
+      await handleExportPDF()
+      return
+    }
+    if (tipo === 'pdf' && subTab === 'satisfacion') {
+      await handleExportPDF_Satisfaccion()
+      return
+    }
+    if (tipo === 'excel' && subTab !== 'satisfacion') {
+      await handleExportExcel()
+      return
+    }
+    if (tipo === 'excel' && subTab === 'satisfacion') {
+      await handleExportExcel_Satisfaccion()
+      return
+    }
     const setter = tipo === 'pdf' ? setExportandoPDF : setExportandoExcel
     setter(true)
     try {
@@ -206,6 +223,751 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
       console.error(`Error al exportar ${tipo.toUpperCase()}:`, e)
     } finally {
       setter(false)
+    }
+  }
+
+  async function handleExportPDF() {
+    if (!dashboard) return
+    setExportandoPDF(true)
+    try {
+      const getPeriodo = () => {
+        if (rangoFechas === 'todo') return 'Todo el histórico'
+        if (rangoFechas === '30d') return 'Últimos 30 días'
+        if (rangoFechas === '3m') return 'Últimos 3 meses'
+        if (rangoFechas === '6m') return 'Últimos 6 meses'
+        if (rangoFechas === 'anio') return `Año ${new Date().getFullYear()}`
+        if (rangoFechas === 'personalizado') {
+          if (fechaInicio && fechaFin) return `${fechaInicio} — ${fechaFin}`
+          if (fechaInicio) return `Desde ${fechaInicio}`
+          if (fechaFin) return `Hasta ${fechaFin}`
+        }
+        return 'Período no especificado'
+      }
+
+      const plantelNombre = plantelFiltro === 'todos' ? 'Todos los Planteles' : plantelFiltro
+      const instNombre = institucionFiltro === 'todos' ? 'Todas las Instituciones' : institucionFiltro
+
+      // Fetch solicitudes for detail table
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let solicitudesPDF: Array<Record<string, any>> = []
+      try {
+        const res = await axios.get('/api/solicitudes')
+        solicitudesPDF = res.data ?? []
+        if (plantelFiltro !== 'todos') solicitudesPDF = solicitudesPDF.filter((item) => item.plantel?.nombre === plantelFiltro)
+        if (institucionFiltro !== 'todos') solicitudesPDF = solicitudesPDF.filter((item) => item.institucion?.nombre === institucionFiltro)
+        if (fechaInicio) {
+          const startDate = new Date(fechaInicio)
+          solicitudesPDF = solicitudesPDF.filter((item) => {
+            const d = item.fechaSolicitud ? new Date(item.fechaSolicitud) : (item.fechaEvento ? new Date(item.fechaEvento) : null)
+            return d && d >= startDate
+          })
+        }
+        if (fechaFin) {
+          const endDate = new Date(fechaFin + 'T23:59:59')
+          solicitudesPDF = solicitudesPDF.filter((item) => {
+            const d = item.fechaSolicitud ? new Date(item.fechaSolicitud) : (item.fechaEvento ? new Date(item.fechaEvento) : null)
+            return d && d <= endDate
+          })
+        }
+        solicitudesPDF.sort((a, b) => {
+          const da = a.fechaSolicitud ? new Date(a.fechaSolicitud).getTime() : (a.fechaEvento ? new Date(a.fechaEvento).getTime() : 0)
+          const db = b.fechaSolicitud ? new Date(b.fechaSolicitud).getTime() : (b.fechaEvento ? new Date(b.fechaEvento).getTime() : 0)
+          return db - da
+        })
+      } catch (err) {
+        console.error('Error fetching solicitudes for PDF:', err)
+      }
+
+      // Capture charts via PdfCharts utility
+      const chartIds = ['chart-mensual', 'chart-estado', 'chart-macro', 'chart-servicios', 'chart-plantel', 'chart-institucion']
+      const chartDataUrls = await captureCharts(chartIds, { scale: 2.5, quality: 0.92 })
+
+      const resumen = generarResumen()
+
+      const kpiData = [
+        { label: 'Total Solicitudes', value: dashboard.totalSolicitudes, color: '#1E3A8A', bg: '#EEF2FF' },
+        { label: 'Pendientes', value: dashboard.pendientes, color: '#F59E0B', bg: '#FFFBEB' },
+        { label: 'Aprobadas', value: dashboard.aprobadas, color: '#1E3A8A', bg: '#EEF2FF' },
+        { label: 'Completadas', value: dashboard.completadas, color: '#16A34A', bg: '#F0FDF4' },
+        { label: 'Canceladas', value: dashboard.canceladas, color: '#E11D48', bg: '#FFF1F2' },
+      ]
+
+      const ins = dashboard.insights
+      const insightData = [
+        { label: 'Tendencia General', value: ins.tendenciaGeneral?.tipo === 'crecimiento' ? `+${ins.tendenciaGeneral?.porcentaje ?? 0}%` : ins.tendenciaGeneral?.tipo === 'decrecimiento' ? `${ins.tendenciaGeneral?.porcentaje ?? 0}%` : 'Estable', desc: ins.tendenciaGeneral?.tipo === 'crecimiento' ? `Incremento del ${(ins.tendenciaGeneral?.porcentaje ?? 0)}%` : ins.tendenciaGeneral?.tipo === 'decrecimiento' ? `Decremento del ${Math.abs(Number(ins.tendenciaGeneral?.porcentaje) || 0)}%` : 'Sin cambios significativos', color: ins.tendenciaGeneral?.tipo === 'crecimiento' ? '#16A34A' : ins.tendenciaGeneral?.tipo === 'decrecimiento' ? '#E11D48' : '#64748B' },
+        { label: 'Plantel Líder', value: ins.plantelLider?.nombre ?? 'N/D', desc: `${ins.plantelLider?.porcentaje ?? 0}% de las solicitudes`, color: '#1E3A8A' },
+        { label: 'Institución Líder', value: ins.institucionLider?.nombre ?? 'N/D', desc: `${ins.institucionLider?.porcentaje ?? 0}% de las solicitudes`, color: '#16A34A' },
+        { label: 'Mes Más Activo', value: ins.mesMasActivo?.nombre ?? 'N/D', desc: `${ins.mesMasActivo?.total ?? 0} solicitudes`, color: '#F59E0B' },
+        { label: 'Tasa de Cancelación', value: `${ins.tasaCancelacion ?? 0}%`, desc: 'del total de solicitudes', color: '#E11D48' },
+      ]
+
+      const report = new PdfReport({ title: 'Reporte de Estadísticas Operativas' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const doc = (report as any).doc as import('jspdf').default
+      const pw = doc.internal.pageSize.getWidth()
+      const ph = doc.internal.pageSize.getHeight()
+
+      // ═══════════════════ COVER PAGE ═══════════════════
+      const [cr, cg, cb] = hexToRgb(PDF_COLORS.coverBg1)
+      doc.setFillColor(cr, cg, cb)
+      doc.rect(0, 0, pw, ph, 'F')
+
+      doc.setFillColor(225, 29, 72)
+      doc.rect(40, 130, 80, 4, 'F')
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.setTextColor(160, 175, 210)
+      doc.text('TIGRETRACK INTELLIGENCE', pw / 2, 105, { align: 'center' })
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(34)
+      doc.setTextColor(255, 255, 255)
+      doc.text('Reporte Ejecutivo', pw / 2, 175, { align: 'center' })
+      doc.text('de Estadísticas', pw / 2, 205, { align: 'center' })
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(13)
+      doc.setTextColor(180, 195, 225)
+      doc.text('Panel Logístico y Operativo', pw / 2, 235, { align: 'center' })
+
+      const metaY = 280
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.setTextColor(200, 210, 235)
+      doc.text('PERÍODO', pw / 2 - 120, metaY)
+      doc.text('PLANTEL', pw / 2 - 120, metaY + 14)
+      doc.text('INSTITUCIÓN', pw / 2 - 120, metaY + 28)
+      doc.text('GENERACIÓN', pw / 2 - 120, metaY + 42)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.setTextColor(255, 255, 255)
+      const genDateStr = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+      const genTimeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+      doc.text(getPeriodo(), pw / 2 + 20, metaY)
+      doc.text(plantelNombre, pw / 2 + 20, metaY + 14)
+      doc.text(instNombre, pw / 2 + 20, metaY + 28)
+      doc.text(`${genDateStr} — ${genTimeStr}`, pw / 2 + 20, metaY + 42)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7)
+      doc.setTextColor(160, 175, 210)
+      doc.text('Universidad Madero (UMAD) · Sistema TigreTrack', pw / 2, ph - 22, { align: 'center' })
+
+      // ═══════════════════ EXECUTIVE SUMMARY + KPIs ═══════════════════
+      report.addPage()
+      report.addSectionTitle('Resumen Ejecutivo')
+      report.addBodyText(resumen)
+      report.addSectionTitle('Indicadores Clave de Desempeño (KPIs)')
+      report.addKpiCards(kpiData)
+
+      // ═══════════════════ INSIGHTS PAGE ═══════════════════
+      report.addPage()
+      report.addSectionTitle('Insights Estratégicos')
+      report.addInsightCards(insightData)
+
+      // ═══════════════════ CHARTS (3 pages, 2 per page) ═══════════════════
+      const chartPairs: Array<[string, string, string, string]> = [
+        ['chart-macro', 'Distribución por Categoría Macro', 'chart-servicios', 'Servicios de Cobertura más Demandados'],
+        ['chart-plantel', 'Distribución Física por Plantel', 'chart-institucion', 'Distribución Académica por Institución'],
+        ['chart-mensual', 'Solicitudes por Historial Mensual', 'chart-estado', 'Distribución Operativa por Estado'],
+      ]
+
+      for (const [id1, title1, id2, title2] of chartPairs) {
+        report.addPage()
+        if (chartDataUrls[id1]) {
+          report.addChartImage(chartDataUrls[id1], { title: title1, width: 170 })
+        }
+        if (chartDataUrls[id2]) {
+          report.addChartImage(chartDataUrls[id2], { title: title2, width: 170 })
+        }
+      }
+
+      // ═══════════════════ SOLICITUDES TABLE ═══════════════════
+      if (solicitudesPDF.length > 0) {
+        report.addPage()
+        report.addSectionTitle('Detalle de Solicitudes')
+        const columns: ColumnDef[] = [
+          { header: 'Folio', dataKey: 'folio', width: 30, style: { fontStyle: 'bold' } },
+          { header: 'Evento', dataKey: 'nombreEvento' },
+          { header: 'Plantel', dataKey: 'plantelNombre' },
+          { header: 'Institución', dataKey: 'institucionNombre' },
+          { header: 'Estado', dataKey: 'estado', align: 'center' },
+          { header: 'Fecha', dataKey: 'fecha', align: 'center' },
+        ]
+        const tableData = solicitudesPDF.map((item) => ({
+          folio: item.folio ?? '—',
+          nombreEvento: item.nombreEvento ?? '—',
+          plantelNombre: item.plantel?.nombre ?? '—',
+          institucionNombre: item.institucion?.nombre ?? item.institucionPersonalizada ?? '—',
+          estado: item.estado,
+          fecha: item.fechaSolicitud ? formatShortDate(item.fechaSolicitud) : item.fechaEvento ? formatShortDate(item.fechaEvento) : '—',
+        }))
+        report.addTable(columns, tableData)
+      }
+
+      report.save('TigreTrack_Reporte_Operativo.pdf')
+    } catch (e) {
+      console.error('Error generando PDF:', e)
+    } finally {
+      setExportandoPDF(false)
+    }
+  }
+
+  async function handleExportExcel() {
+    if (!dashboard) return
+    setExportandoExcel(true)
+    try {
+      const getPeriodo = () => {
+        if (rangoFechas === 'todo') return 'Todo el histórico'
+        if (rangoFechas === '30d') return 'Últimos 30 días'
+        if (rangoFechas === '3m') return 'Últimos 3 meses'
+        if (rangoFechas === '6m') return 'Últimos 6 meses'
+        if (rangoFechas === 'anio') return `Año ${new Date().getFullYear()}`
+        if (rangoFechas === 'personalizado') {
+          if (fechaInicio && fechaFin) return `${fechaInicio} — ${fechaFin}`
+          if (fechaInicio) return `Desde ${fechaInicio}`
+          if (fechaFin) return `Hasta ${fechaFin}`
+        }
+        return 'Período no especificado'
+      }
+
+      const plantelNombre = plantelFiltro === 'todos' ? 'Todos los Planteles' : plantelFiltro
+      const instNombre = institucionFiltro === 'todos' ? 'Todas las Instituciones' : institucionFiltro
+
+      // Capture chart images for Excel
+      const chartIds = ['chart-mensual', 'chart-estado', 'chart-macro', 'chart-servicios', 'chart-plantel', 'chart-institucion']
+      const chartImages = await captureCharts(chartIds, { scale: 2.5, quality: 0.92 })
+
+      // Fetch solicitudes for detail sheet
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let solicitudesExcel: Array<Record<string, any>> = []
+      try {
+        const res = await axios.get('/api/solicitudes')
+        solicitudesExcel = res.data ?? []
+        if (plantelFiltro !== 'todos') solicitudesExcel = solicitudesExcel.filter((item) => item.plantel?.nombre === plantelFiltro)
+        if (institucionFiltro !== 'todos') solicitudesExcel = solicitudesExcel.filter((item) => item.institucion?.nombre === institucionFiltro)
+        if (fechaInicio) {
+          const startDate = new Date(fechaInicio)
+          solicitudesExcel = solicitudesExcel.filter((item) => {
+            const d = item.fechaSolicitud ? new Date(item.fechaSolicitud) : (item.fechaEvento ? new Date(item.fechaEvento) : null)
+            return d && d >= startDate
+          })
+        }
+        if (fechaFin) {
+          const endDate = new Date(fechaFin + 'T23:59:59')
+          solicitudesExcel = solicitudesExcel.filter((item) => {
+            const d = item.fechaSolicitud ? new Date(item.fechaSolicitud) : (item.fechaEvento ? new Date(item.fechaEvento) : null)
+            return d && d <= endDate
+          })
+        }
+        solicitudesExcel.sort((a, b) => {
+          const da = a.fechaSolicitud ? new Date(a.fechaSolicitud).getTime() : (a.fechaEvento ? new Date(a.fechaEvento).getTime() : 0)
+          const db = b.fechaSolicitud ? new Date(b.fechaSolicitud).getTime() : (b.fechaEvento ? new Date(b.fechaEvento).getTime() : 0)
+          return db - da
+        })
+      } catch (err) {
+        console.error('Error fetching solicitudes for Excel:', err)
+      }
+
+      const book = new ExcelReport({ title: 'Reporte Estadístico TigreTrack' })
+      const periodo = getPeriodo()
+      const totalSolicitudes = dashboard.totalSolicitudes || 1
+
+      // ── Sheet 1: Resumen / KPIs ──
+      const kpiEntries = [
+        { label: 'Total Solicitudes', value: dashboard.totalSolicitudes },
+        { label: 'Pendientes', value: dashboard.pendientes },
+        { label: 'Aprobadas', value: dashboard.aprobadas },
+        { label: 'Completadas', value: dashboard.completadas },
+        { label: 'Canceladas', value: dashboard.canceladas },
+      ]
+      book.addDashboardSheet('Resumen - KPIs', 'Reporte de Estadísticas Operativas', kpiEntries)
+
+      // ── Sheet 2: Planteles ──
+      const plantelData = (dashboard.porPlantel ?? []).map((p) => ({
+        plantel: p.nombre ?? '—',
+        total: p.total ?? 0,
+        porcentaje: `${((p.total / totalSolicitudes) * 100).toFixed(1)}%`,
+      }))
+      const plantelSheet = book.addFullSheet({
+        name: 'Planteles',
+        title: 'Distribución por Plantel',
+        subtitle: `Período: ${periodo}`,
+        columns: [
+          { header: 'Plantel', dataKey: 'plantel', width: 35 },
+          { header: 'Total Solicitudes', dataKey: 'total', width: 22, align: 'center' },
+          { header: 'Porcentaje', dataKey: 'porcentaje', width: 16, align: 'center' },
+        ],
+        data: plantelData,
+      })
+      if (plantelSheet.rowCount >= 4) {
+        plantelSheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: plantelSheet.rowCount, column: 3 } }
+      }
+
+      // ── Sheet 3: Instituciones ──
+      const instData = (dashboard.porInstitucion ?? []).map((i) => ({
+        institucion: i.nombre ?? '—',
+        total: i.total ?? 0,
+        porcentaje: `${((i.total / totalSolicitudes) * 100).toFixed(1)}%`,
+      }))
+      const instSheet = book.addFullSheet({
+        name: 'Instituciones',
+        title: 'Distribución por Institución',
+        subtitle: `Período: ${periodo}`,
+        columns: [
+          { header: 'Institución', dataKey: 'institucion', width: 35 },
+          { header: 'Total Solicitudes', dataKey: 'total', width: 22, align: 'center' },
+          { header: 'Porcentaje', dataKey: 'porcentaje', width: 16, align: 'center' },
+        ],
+        data: instData,
+      })
+      if (instSheet.rowCount >= 4) {
+        instSheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: instSheet.rowCount, column: 3 } }
+      }
+
+      // ── Sheet 4: Histórico / Solicitudes ──
+      if (solicitudesExcel.length > 0) {
+        const solicitudesData = solicitudesExcel.map((item) => ({
+          folio: item.folio ?? '—',
+          evento: item.nombreEvento ?? '—',
+          plantel: item.plantel?.nombre ?? '—',
+          institucion: item.institucion?.nombre ?? item.institucionPersonalizada ?? '—',
+          estado: item.estado,
+          fecha: item.fechaSolicitud
+            ? excelFormatShortDate(item.fechaSolicitud)
+            : item.fechaEvento
+              ? excelFormatShortDate(item.fechaEvento)
+              : '—',
+        }))
+        const solicitudesSheet = book.addFullSheet({
+          name: 'Histórico - Solicitudes',
+          title: 'Detalle de Solicitudes',
+          subtitle: `${periodo} | ${plantelNombre} | ${instNombre}`,
+          columns: [
+            { header: 'Folio', dataKey: 'folio', width: 18 },
+            { header: 'Nombre del Evento', dataKey: 'evento', width: 38 },
+            { header: 'Plantel', dataKey: 'plantel', width: 26 },
+            { header: 'Institución', dataKey: 'institucion', width: 28 },
+            { header: 'Estado', dataKey: 'estado', width: 16, align: 'center' },
+            { header: 'Fecha', dataKey: 'fecha', width: 16, align: 'center' },
+          ],
+          data: solicitudesData,
+        })
+        if (solicitudesSheet.rowCount >= 4) {
+          solicitudesSheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: solicitudesSheet.rowCount, column: 6 } }
+        }
+      }
+
+      // ── Inject chart images into Resumen - KPIs sheet ──
+      const chartConfigs = [
+        { id: 'chart-mensual', title: 'Solicitudes por Mes' },
+        { id: 'chart-estado', title: 'Distribución por Estado' },
+        { id: 'chart-macro', title: 'Distribución por Categoría Macro' },
+        { id: 'chart-servicios', title: 'Servicios más Demandados' },
+        { id: 'chart-plantel', title: 'Distribución por Plantel' },
+        { id: 'chart-institucion', title: 'Distribución por Institución' },
+      ]
+      const kpiSheet = book.getSheet('Resumen - KPIs')
+      if (kpiSheet && Object.keys(chartImages).length > 0) {
+        const chartWidth = 580
+        const chartHeight = 320
+        // addImage uses 0-indexed column/row for tl
+        let baseRow = 12
+        const baseCol = 0
+
+        for (let i = 0; i < chartConfigs.length; i += 2) {
+          const c1 = chartConfigs[i]
+          const img1 = chartImages[c1.id]
+          if (img1) {
+            book.addImageToSheet('Resumen - KPIs', img1, { col: baseCol, row: baseRow }, { width: chartWidth, height: chartHeight })
+          }
+
+          const c2 = chartConfigs[i + 1]
+          const img2 = c2 ? chartImages[c2.id] : undefined
+          if (img2) {
+            book.addImageToSheet('Resumen - KPIs', img2, { col: baseCol + 6, row: baseRow }, { width: chartWidth, height: chartHeight })
+          }
+
+          baseRow += 18
+        }
+      }
+
+      await book.save('TigreTrack_Reporte_Operativo.xlsx')
+    } catch (e) {
+      console.error('Error generando Excel:', e)
+    } finally {
+      setExportandoExcel(false)
+    }
+  }
+
+  async function handleExportPDF_Satisfaccion() {
+    if (!dashboard) return
+    setExportandoPDF(true)
+    try {
+      const isAll = selectedEncuestaId === 'todas'
+      const promedios = isAll ? dashboard.promediosEncuesta! : datosCSAT!.promedios
+      const diagnostico = isAll ? (dashboard.diagnostico ?? null) : datosCSAT!.diagnostico
+      const distribucion = isAll ? (dashboard.distribucionEstrellas ?? []) : datosCSAT!.distribucion
+      const respuestas = isAll ? encuestas : encuestasFiltradas
+      const comentariosList = comentarios
+
+      if (!promedios || promedios.totalEncuestas === 0) {
+        console.warn('No hay datos de satisfacción para exportar')
+        return
+      }
+
+      const getPeriodo = () => {
+        if (rangoFechas === 'todo') return 'Todo el histórico'
+        if (rangoFechas === '30d') return 'Últimos 30 días'
+        if (rangoFechas === '3m') return 'Últimos 3 meses'
+        if (rangoFechas === '6m') return 'Últimos 6 meses'
+        if (rangoFechas === 'anio') return `Año ${new Date().getFullYear()}`
+        if (rangoFechas === 'personalizado') {
+          if (fechaInicio && fechaFin) return `${fechaInicio} — ${fechaFin}`
+          if (fechaInicio) return `Desde ${fechaInicio}`
+          if (fechaFin) return `Hasta ${fechaFin}`
+        }
+        return 'Período no especificado'
+      }
+
+      const plantelNombre = plantelFiltro === 'todos' ? 'Todos los Planteles' : plantelFiltro
+      const instNombre = institucionFiltro === 'todos' ? 'Todas las Instituciones' : institucionFiltro
+      const encuestaTexto = isAll ? 'Todas las encuestas (Consolidado)' : `Encuesta #${selectedEncuestaId}`
+
+      // Capture the CSAT metrics section from DOM
+      const chartImages = await captureCharts(['csat-section'], { scale: 2.5, quality: 0.92 })
+
+      const report = new PdfReport({ title: 'Reporte de Satisfacción y Calidad' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const doc = (report as any).doc as import('jspdf').default
+      const pw = doc.internal.pageSize.getWidth()
+      const ph = doc.internal.pageSize.getHeight()
+      const [cr, cg, cb] = hexToRgb(PDF_COLORS.coverBg1)
+
+      // ═══════════════════ COVER PAGE ═══════════════════
+      doc.setFillColor(cr, cg, cb)
+      doc.rect(0, 0, pw, ph, 'F')
+
+      doc.setFillColor(234, 179, 8)
+      doc.rect(40, 130, 80, 4, 'F')
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.setTextColor(160, 175, 210)
+      doc.text('TIGRETRACK INTELLIGENCE', pw / 2, 105, { align: 'center' })
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(30)
+      doc.setTextColor(255, 255, 255)
+      doc.text('Reporte de Satisfacción', pw / 2, 170, { align: 'center' })
+      doc.text('y Calidad', pw / 2, 200, { align: 'center' })
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(13)
+      doc.setTextColor(180, 195, 225)
+      doc.text('Panel de Evaluación Institucional', pw / 2, 235, { align: 'center' })
+
+      // Meta info
+      const metaY = 280
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.setTextColor(200, 210, 235)
+      doc.text('PERÍODO', pw / 2 - 120, metaY)
+      doc.text('ENCUESTA', pw / 2 - 120, metaY + 14)
+      doc.text('PLANTEL', pw / 2 - 120, metaY + 28)
+      doc.text('INSTITUCIÓN', pw / 2 - 120, metaY + 42)
+      doc.text('GENERACIÓN', pw / 2 - 120, metaY + 56)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.setTextColor(255, 255, 255)
+      const genDateStr = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+      const genTimeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+      doc.text(getPeriodo(), pw / 2 + 20, metaY)
+      doc.text(encuestaTexto, pw / 2 + 20, metaY + 14)
+      doc.text(plantelNombre, pw / 2 + 20, metaY + 28)
+      doc.text(instNombre, pw / 2 + 20, metaY + 42)
+      doc.text(`${genDateStr} — ${genTimeStr}`, pw / 2 + 20, metaY + 56)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7)
+      doc.setTextColor(160, 175, 210)
+      doc.text('Universidad Madero (UMAD) · Sistema TigreTrack', pw / 2, ph - 22, { align: 'center' })
+
+      // ═══════════════════ DIAGNÓSTICO Y PROMEDIOS ═══════════════════
+      report.addPage()
+      report.addSectionTitle('Diagnóstico y Promedios de Indicadores')
+
+      if (diagnostico) {
+        report.addInsightCards([{
+          label: 'Diagnóstico CSAT',
+          value: diagnostico.nivel,
+          desc: diagnostico.mensaje,
+          color: diagnostico.color,
+        }])
+      }
+
+      const criteriaCards = [
+        { label: 'Puntualidad', value: Number(promedios.puntualidad.toFixed(1)), color: '#2563EB' },
+        { label: 'Calidad Técnica', value: Number(promedios.calidadTecnica.toFixed(1)), color: '#7C3AED' },
+        { label: 'Atención Staff', value: Number(promedios.atencionStaff.toFixed(1)), color: '#F59E0B' },
+        { label: 'Satisfacción Gral.', value: Number(promedios.satisfaccionGral.toFixed(1)), color: '#16A34A' },
+      ]
+      report.addSubsectionTitle(`${promedios.totalEncuestas} encuesta(s) respondida(s)`)
+      report.addKpiCards(criteriaCards)
+
+      // ═══════════════════ CAPTURED CSAT VISUAL PANEL ═══════════════════
+      if (chartImages['csat-section']) {
+        report.addPage()
+        report.addSectionTitle('Panel Visual de Satisfacción')
+        report.addChartImage(chartImages['csat-section'], {
+          title: 'Métricas Detalladas, Diagnóstico y Distribución de Evaluaciones',
+          width: 170,
+        })
+      }
+
+      // ═══════════════════ DISTRIBUCIÓN DE ESTRELLAS ═══════════════════
+      if (distribucion.length > 0) {
+        report.addPage()
+        report.addSectionTitle('Distribución de Calificaciones')
+        const totalEnc = distribucion.reduce((s: number, d: DistribucionEstrella) => s + d.total, 0)
+        const starColumns: ColumnDef[] = [
+          { header: 'Estrellas', dataKey: 'estrellas', width: 50 },
+          { header: 'Respuestas', dataKey: 'total', width: 35, align: 'center' },
+          { header: '% del Total', dataKey: 'porcentaje', width: 35, align: 'center' },
+        ]
+        const starData = distribucion.map((d: DistribucionEstrella) => ({
+          estrellas: `${'★'.repeat(d.estrellas)}${'☆'.repeat(5 - d.estrellas)}`,
+          total: d.total,
+          porcentaje: totalEnc > 0 ? `${((d.total / totalEnc) * 100).toFixed(1)}%` : '0%',
+        }))
+        report.addTable(starColumns, starData)
+      }
+
+      // ═══════════════════ COMENTARIOS ═══════════════════
+      if (comentariosList.length > 0) {
+        report.addPage()
+        report.addSectionTitle('Comentarios y Retroalimentación')
+        for (const c of comentariosList) {
+          const solicitud = c.solicitud ?? ({} as EncuestaCompleta['solicitud'])
+          report.addBodyText(`${solicitud.nombreEvento ?? 'Evento'} — Folio: ${solicitud.folio ?? 'N/A'}`, {
+            fontSize: 9,
+            bold: true,
+            color: '#1E3A8A',
+          })
+          report.addBodyText(`"${c.comentarios ?? ''}"`, {
+            fontSize: 9,
+            color: '#334155',
+          })
+          report.addSeparator()
+        }
+      }
+
+      // ═══════════════════ TABLA DE RESPUESTAS DETALLADAS ═══════════════════
+      if (respuestas.length > 0) {
+        report.addPage()
+        report.addSectionTitle('Detalle de Respuestas de Encuestas')
+        const encColumns: ColumnDef[] = [
+          { header: 'Folio', dataKey: 'folio', width: 22 },
+          { header: 'Evento', dataKey: 'evento', width: 38 },
+          { header: 'Puntualidad', dataKey: 'puntualidad', width: 22, align: 'center' },
+          { header: 'Calidad Téc.', dataKey: 'calidadTecnica', width: 22, align: 'center' },
+          { header: 'Atención', dataKey: 'atencionStaff', width: 22, align: 'center' },
+          { header: 'Satisf. Gral', dataKey: 'satisfaccionGral', width: 22, align: 'center' },
+          { header: 'Fecha', dataKey: 'fecha', width: 22, align: 'center' },
+        ]
+        const encData = respuestas.map((e: EncuestaCompleta) => ({
+          folio: e.solicitud?.folio ?? '—',
+          evento: e.solicitud?.nombreEvento ?? '—',
+          puntualidad: e.puntualidad,
+          calidadTecnica: e.calidadTecnica,
+          atencionStaff: e.atencionStaff,
+          satisfaccionGral: e.satisfaccionGral,
+          fecha: formatShortDate(e.fechaRespuesta),
+        }))
+        report.addTable(encColumns, encData)
+      }
+
+      report.save('TigreTrack_Reporte_Satisfaccion.pdf')
+    } catch (e) {
+      console.error('Error generando PDF de Satisfacción:', e)
+    } finally {
+      setExportandoPDF(false)
+    }
+  }
+
+  async function handleExportExcel_Satisfaccion() {
+    if (!dashboard) return
+    setExportandoExcel(true)
+    try {
+      const isAll = selectedEncuestaId === 'todas'
+      const promedios = isAll ? dashboard.promediosEncuesta! : datosCSAT!.promedios
+      const diagnostico = isAll ? (dashboard.diagnostico ?? null) : datosCSAT!.diagnostico
+      const distribucion = isAll ? (dashboard.distribucionEstrellas ?? []) : datosCSAT!.distribucion
+      const respuestas = isAll ? encuestas : encuestasFiltradas
+      const comentariosList = comentarios
+
+      if (!promedios || promedios.totalEncuestas === 0) {
+        console.warn('No hay datos de satisfacción para exportar')
+        return
+      }
+
+      const getPeriodo = () => {
+        if (rangoFechas === 'todo') return 'Todo el histórico'
+        if (rangoFechas === '30d') return 'Últimos 30 días'
+        if (rangoFechas === '3m') return 'Últimos 3 meses'
+        if (rangoFechas === '6m') return 'Últimos 6 meses'
+        if (rangoFechas === 'anio') return `Año ${new Date().getFullYear()}`
+        if (rangoFechas === 'personalizado') {
+          if (fechaInicio && fechaFin) return `${fechaInicio} — ${fechaFin}`
+          if (fechaInicio) return `Desde ${fechaInicio}`
+          if (fechaFin) return `Hasta ${fechaFin}`
+        }
+        return 'Período no especificado'
+      }
+
+      const periodo = getPeriodo()
+      const plantelNombre = plantelFiltro === 'todos' ? 'Todos los Planteles' : plantelFiltro
+      const instNombre = institucionFiltro === 'todos' ? 'Todas las Instituciones' : institucionFiltro
+      const encuestaTexto = isAll ? 'Todas las encuestas (Consolidado)' : `Encuesta #${selectedEncuestaId}`
+      const subtitleMeta = `${periodo} | ${plantelNombre} | ${instNombre} | ${encuestaTexto}`
+
+      const book = new ExcelReport({ title: 'Reporte de Satisfacción de Usuarios TigreTrack' })
+      const globalAvg = (promedios.puntualidad + promedios.calidadTecnica + promedios.atencionStaff + promedios.satisfaccionGral) / 4
+
+      // ── Sheet 1: Resumen ──
+      const resumenSheet = book.addFullSheet({
+        name: 'Resumen',
+        title: 'Reporte de Satisfacción de Usuarios TigreTrack',
+        subtitle: subtitleMeta,
+        columns: [
+          { header: 'Métrica', dataKey: 'metrica', width: 40 },
+          { header: 'Valor', dataKey: 'valor', width: 25, align: 'center' },
+        ],
+        data: [
+          { metrica: 'Total Encuestas Respondidas', valor: promedios.totalEncuestas },
+          { metrica: 'Promedio Global de Satisfacción', valor: `${globalAvg.toFixed(2)} / 5` },
+          { metrica: 'Puntualidad', valor: `${promedios.puntualidad.toFixed(1)} / 5` },
+          { metrica: 'Calidad Técnica', valor: `${promedios.calidadTecnica.toFixed(1)} / 5` },
+          { metrica: 'Atención del Staff', valor: `${promedios.atencionStaff.toFixed(1)} / 5` },
+          { metrica: 'Satisfacción General', valor: `${promedios.satisfaccionGral.toFixed(1)} / 5` },
+          { metrica: 'Diagnóstico', valor: diagnostico?.nivel ?? 'N/D' },
+        ],
+      })
+      if (resumenSheet.rowCount >= 4) {
+        resumenSheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: resumenSheet.rowCount, column: 2 } }
+      }
+
+      // ── Sheet 2: Indicadores ──
+      const indicators = [
+        { criterio: 'Puntualidad', promedio: promedios.puntualidad.toFixed(1), porcentaje: `${((promedios.puntualidad / 5) * 100).toFixed(0)}%` },
+        { criterio: 'Calidad Técnica', promedio: promedios.calidadTecnica.toFixed(1), porcentaje: `${((promedios.calidadTecnica / 5) * 100).toFixed(0)}%` },
+        { criterio: 'Atención del Staff', promedio: promedios.atencionStaff.toFixed(1), porcentaje: `${((promedios.atencionStaff / 5) * 100).toFixed(0)}%` },
+        { criterio: 'Satisfacción General', promedio: promedios.satisfaccionGral.toFixed(1), porcentaje: `${((promedios.satisfaccionGral / 5) * 100).toFixed(0)}%` },
+        { criterio: 'Promedio Global', promedio: globalAvg.toFixed(2), porcentaje: `${((globalAvg / 5) * 100).toFixed(0)}%` },
+      ]
+      const indicadoresSheet = book.addFullSheet({
+        name: 'Indicadores',
+        title: 'Promedios de Satisfacción por Criterio',
+        subtitle: periodo,
+        columns: [
+          { header: 'Criterio', dataKey: 'criterio', width: 35 },
+          { header: 'Promedio (/5)', dataKey: 'promedio', width: 20, align: 'center' },
+          { header: 'Porcentaje', dataKey: 'porcentaje', width: 18, align: 'center' },
+        ],
+        data: indicators,
+      })
+      if (indicadoresSheet.rowCount >= 4) {
+        indicadoresSheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: indicadoresSheet.rowCount, column: 3 } }
+      }
+
+      // ── Sheet 3: Distribución ──
+      const totalDist = distribucion.reduce((s: number, d: DistribucionEstrella) => s + d.total, 0)
+      const distribucionData = distribucion.map((d: DistribucionEstrella) => ({
+        estrellas: `${d.estrellas} ★`,
+        total: d.total,
+        porcentaje: totalDist > 0 ? `${((d.total / totalDist) * 100).toFixed(1)}%` : '0%',
+      }))
+      const distribSheet = book.addFullSheet({
+        name: 'Distribución',
+        title: 'Distribución de Calificaciones por Estrellas',
+        subtitle: periodo,
+        columns: [
+          { header: 'Estrellas', dataKey: 'estrellas', width: 20 },
+          { header: 'Total Respuestas', dataKey: 'total', width: 22, align: 'center' },
+          { header: 'Porcentaje', dataKey: 'porcentaje', width: 18, align: 'center' },
+        ],
+        data: distribucionData,
+      })
+      if (distribSheet.rowCount >= 4) {
+        distribSheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: distribSheet.rowCount, column: 3 } }
+      }
+
+      // ── Sheet 4: Comentarios ──
+      if (comentariosList.length > 0) {
+        const comentariosData = comentariosList.map((c: EncuestaCompleta) => ({
+          folio: c.solicitud?.folio ?? '—',
+          evento: c.solicitud?.nombreEvento ?? '—',
+          calificacion: `${c.satisfaccionGral} ★`,
+          fecha: excelFormatShortDate(c.fechaRespuesta),
+          comentario: c.comentarios ?? '',
+        }))
+        const comentSheet = book.addFullSheet({
+          name: 'Comentarios',
+          title: 'Comentarios y Retroalimentación de Usuarios',
+          subtitle: subtitleMeta,
+          columns: [
+            { header: 'Folio', dataKey: 'folio', width: 18 },
+            { header: 'Evento', dataKey: 'evento', width: 35 },
+            { header: 'Calificación', dataKey: 'calificacion', width: 16, align: 'center' },
+            { header: 'Fecha', dataKey: 'fecha', width: 16, align: 'center' },
+            { header: 'Comentario', dataKey: 'comentario', width: 50 },
+          ],
+          data: comentariosData,
+        })
+        if (comentSheet.rowCount >= 4) {
+          comentSheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: comentSheet.rowCount, column: 5 } }
+        }
+      }
+
+      // ── Sheet 5: Encuestas / Crudo ──
+      if (respuestas.length > 0) {
+        const encuestasData = respuestas.map((e: EncuestaCompleta) => ({
+          folio: e.solicitud?.folio ?? '—',
+          evento: e.solicitud?.nombreEvento ?? '—',
+          puntualidad: e.puntualidad,
+          calidadTecnica: e.calidadTecnica,
+          atencionStaff: e.atencionStaff,
+          satisfaccionGral: e.satisfaccionGral,
+          fecha: excelFormatShortDate(e.fechaRespuesta),
+        }))
+        const encSheet = book.addFullSheet({
+          name: 'Encuestas - Crudo',
+          title: 'Registro Completo de Encuestas Individuales',
+          subtitle: subtitleMeta,
+          columns: [
+            { header: 'Folio', dataKey: 'folio', width: 18 },
+            { header: 'Evento', dataKey: 'evento', width: 35 },
+            { header: 'Puntualidad', dataKey: 'puntualidad', width: 18, align: 'center' },
+            { header: 'Calidad Téc.', dataKey: 'calidadTecnica', width: 18, align: 'center' },
+            { header: 'Atención', dataKey: 'atencionStaff', width: 18, align: 'center' },
+            { header: 'Satisf. Gral', dataKey: 'satisfaccionGral', width: 18, align: 'center' },
+            { header: 'Fecha', dataKey: 'fecha', width: 16, align: 'center' },
+          ],
+          data: encuestasData,
+        })
+        if (encSheet.rowCount >= 4) {
+          encSheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: encSheet.rowCount, column: 7 } }
+        }
+      }
+
+      await book.save('TigreTrack_Reporte_Satisfaccion.xlsx')
+    } catch (e) {
+      console.error('Error generando Excel de Satisfacción:', e)
+    } finally {
+      setExportandoExcel(false)
     }
   }
 
@@ -344,34 +1106,34 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
       }
 
       return Object.entries(categorias)
-        .filter(([_, count]) => count > 0)
+        .filter(([ , count]) => count > 0)
         .map(([nombre, total]) => ({ nombre, total }))
         .sort((a, b) => b.total - a.total)
     } catch (e) {
       console.error('Error procesando porInstitucion:', e)
       return []
     }
-  }, [dashboard?.porInstitucion, dashboard?.totalSolicitudes])
+  }, [dashboard])
 
   const porMesProcesado = useMemo(() =>
     (Array.isArray(dashboard?.porMes) ? dashboard.porMes : [])
       .map(m => ({ mes: m?.mes ?? '', total: Number(m?.total) || 0 }))
       .filter(m => m.total > 0),
-  [dashboard?.porMes])
+  [dashboard])
 
   const porPlantelProcesado = useMemo(() =>
     (Array.isArray(dashboard?.porPlantel) ? dashboard.porPlantel : [])
       .map(p => ({ nombre: p?.nombre ?? '', total: Number(p?.total) || 0 }))
       .filter(p => p.total > 0),
-  [dashboard?.porPlantel])
+  [dashboard])
 
-  const MACRO_COLORS: Record<string, string> = {
+  const MACRO_COLORS = useMemo<Record<string, string>>(() => ({
     'Universidad (UMAD)': '#1E3A8A',
     'Colegios (IMM / Prepa)': '#E11D48',
     Otros: '#64748B',
-  }
+  }), [])
 
-  const MAP_GLOBAL: Record<string, string> = {
+  const MAP_GLOBAL = useMemo<Record<string, string>>(() => ({
     'Ingenierías': 'Universidad (UMAD)',
     'Arte y Humanidades': 'Universidad (UMAD)',
     'Negocios, Comercio y Derecho': 'Universidad (UMAD)',
@@ -381,7 +1143,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
     'IMM Secundaria': 'Colegios (IMM / Prepa)',
     'IMM Primaria': 'Colegios (IMM / Prepa)',
     'IMM Maternal': 'Colegios (IMM / Prepa)',
-  }
+  }), [])
 
   const porMacroProcesado = useMemo(() => {
     try {
@@ -437,20 +1199,20 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
       }
 
       return Object.entries(categorias)
-        .filter(([_, v]) => v > 0)
+        .filter(([ , v]) => v > 0)
         .map(([name, value]) => ({ name, value, color: MACRO_COLORS[name] ?? '#CBD5E1' }))
     } catch (e) {
       console.error('Error procesando porMacro:', e)
       return []
     }
-  }, [dashboard?.porInstitucion, dashboard?.porPlantel, dashboard?.totalSolicitudes])
+  }, [dashboard, MACRO_COLORS, MAP_GLOBAL])
 
-  const MAP_MATERIAL_NAME: Record<string, string> = {
+  const MAP_MATERIAL_NAME = useMemo<Record<string, string>>(() => ({
     Fotografia: 'Fotografía',
     Nota_Web: 'Nota Web',
     Banner: 'Banner',
     Otro: 'Otro',
-  }
+  }), [])
 
   const porMaterialProcesado = useMemo(() => {
     try {
@@ -462,7 +1224,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
       console.error('Error procesando porMaterial:', e)
       return []
     }
-  }, [dashboard?.porMaterial])
+  }, [dashboard, MAP_MATERIAL_NAME])
 
   function calcularDiagnostico(globalAvg: number): { nivel: string; mensaje: string; color: string } {
     if (globalAvg >= 4.5) return { nivel: 'Excelente', mensaje: 'La calidad del servicio supera las expectativas. Se mantiene un nivel óptimo de satisfacción.', color: '#16A34A' }
@@ -472,9 +1234,11 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
     return { nivel: 'Crítico', mensaje: 'El servicio no cumple con los estándares mínimos de calidad. Se necesita una intervención inmediata.', color: '#DC2626' }
   }
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const encuestasFiltradas = useMemo(() => {
-    if (selectedEncuestaId === 'todas') return encuestas
-    return encuestas.filter(e => e.id === selectedEncuestaId)
+    return !encuestas ? []
+      : selectedEncuestaId === 'todas' ? encuestas
+      : encuestas.filter(e => String(e?.id) === String(selectedEncuestaId))
   }, [selectedEncuestaId, encuestas])
 
   const datosCSAT = useMemo(() => {
@@ -555,7 +1319,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
 
       const comentarios = encuestas
         .filter(e => e.comentarios && e.comentarios.trim().length > 0)
-        .filter(e => selectedEncuestaId === 'todas' || e.id === selectedEncuestaId)
+        .filter(e => selectedEncuestaId === 'todas' || String(e.id) === String(selectedEncuestaId))
 
       const KPI_CARDS = [
         { label: 'Total Solicitudes', value: Number(dashboard.totalSolicitudes) || 0, tendencia: Number(dashboard.tendencias?.totalSolicitudes) || 0, icon: Layers, color: '#1E3A8A', bg: 'rgba(30,58,138,0.06)' },
@@ -942,7 +1706,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
 
           {/* GRÁFICAS OPERATIVAS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '2rem' }}>
-            <div className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+            <div id="chart-mensual" className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
                 <BarChart3 size={18} color="#1E3A8A" />
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Solicitudes por Historial Mensual</h2>
@@ -955,7 +1719,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
                     <YAxis tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <Tooltip contentStyle={{ background: COLORS.surface, borderRadius: '10px', border: '1px solid #E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} />
                     <Bar dataKey="total" fill="#1E3A8A" radius={[6, 6, 0, 0]} barSize={28}>
-                      <LabelList dataKey="total" position="top" style={{ fontSize: 11, fill: '#64748B', fontWeight: 600 }} formatter={(v: any) => v > 0 ? v : ''} />
+                      <LabelList dataKey="total" position="top" style={{ fontSize: 11, fill: '#64748B', fontWeight: 600 }} formatter={(v: unknown) => (v as number) > 0 ? v as number : ''} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -967,7 +1731,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
               )}
             </div>
 
-            <div className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+            <div id="chart-estado" className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
                 <Activity size={18} color="#E11D48" />
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Distribución Operativa por Estado</h2>
@@ -1002,7 +1766,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
               )}
             </div>
 
-            <div className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+            <div id="chart-macro" className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
                 <Layers size={18} color="#1E3A8A" />
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Distribución por Categoría Macro</h2>
@@ -1027,10 +1791,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
                     </Pie>
                     <Tooltip
                       contentStyle={{ background: COLORS.surface, borderRadius: '10px', border: '1px solid #E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
-                      formatter={(value: any, _name: any, props: any) => [
-                        `${value.toLocaleString()} solicitudes`,
-                        props.payload.name,
-                      ]}
+                      formatter={(value: unknown) => [`${(value as number).toLocaleString()} solicitudes`, '']}
                     />
                     <Legend verticalAlign="bottom" formatter={(value) => <span style={{ fontWeight: 600, color: '#0F172A' }}>{value}</span>} />
                   </PieChart>
@@ -1043,7 +1804,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
               )}
             </div>
 
-            <div className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+            <div id="chart-servicios" className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
                 <Award size={18} color="#E11D48" />
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Servicios de Cobertura más Demandados</h2>
@@ -1068,7 +1829,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
               )}
             </div>
 
-            <div className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+            <div id="chart-plantel" className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
                 <Building2 size={18} color="#E11D48" />
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Distribución Física por Plantel</h2>
@@ -1094,7 +1855,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
               )}
             </div>
 
-            <div className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+            <div id="chart-institucion" className="chart-card" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
                 <Users size={18} color="#1E3A8A" />
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Distribución Académica por Institución</h2>
@@ -1128,7 +1889,7 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
           {/* MÉTRICAS CSAT — NUEVO DASHBOARD EJECUTIVO */}
-          <div style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem 2rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
+          <div id="csat-section" style={{ background: COLORS.surface, border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '20px', padding: '1.75rem 2rem', boxShadow: '0 15px 35px -10px rgba(15, 23, 42, 0.04)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                 <Award size={18} color="#F59E0B" />

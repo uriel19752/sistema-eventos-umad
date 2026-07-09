@@ -313,7 +313,7 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
     const plantelesUnicos = [...new Map(solicitudes.filter(s => s?.plantel?.id).map(s => [s.plantel.id, s.plantel])).values()]
 
     const filtradas = solicitudes.filter(s => {
-      if (filtro !== '' && !s?.institucion?.nombre?.includes(filtro) && !(s as any)?.institucionPersonalizada?.includes(filtro) && !s?.departamentoSolicitante?.includes(filtro)) return false
+      if (filtro !== '' && !s?.institucion?.nombre?.includes(filtro) && !(s as unknown as Record<string, string | undefined>)?.institucionPersonalizada?.includes(filtro) && !s?.departamentoSolicitante?.includes(filtro)) return false
       if (tabTemporal === 'mes') {
         const fechaEvento = new Date(s?.fechaEvento ?? '')
         if (isNaN(fechaEvento.getTime()) || fechaEvento.getMonth() !== hoy.getMonth() || fechaEvento.getFullYear() !== hoy.getFullYear()) return false

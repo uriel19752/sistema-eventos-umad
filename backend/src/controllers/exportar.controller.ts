@@ -158,6 +158,8 @@ export async function exportarPDF(
       ...(institucion ? { institucion } : {}),
       ...(fechaInicio ? { fechaInicio } : {}),
       ...(fechaFin ? { fechaFin } : {}),
+      ...(req.usuario?.id ? { usuarioId: req.usuario.id } : {}),
+      ...(req.usuario?.rol ? { rol: req.usuario.rol } : {}),
     });
 
     const doc = new PDFDocument({ margin: 50, size: "A4" });
@@ -614,6 +616,8 @@ export async function exportarExcel(
       ...(institucion ? { institucion } : {}),
       ...(fechaInicio ? { fechaInicio } : {}),
       ...(fechaFin ? { fechaFin } : {}),
+      ...(req.usuario?.id ? { usuarioId: req.usuario.id } : {}),
+      ...(req.usuario?.rol ? { rol: req.usuario.rol } : {}),
     });
 
     const solicitudesWhereEx: Record<string, unknown> = {};

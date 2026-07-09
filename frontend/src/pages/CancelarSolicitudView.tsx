@@ -16,8 +16,6 @@ export default function CancelarSolicitudView() {
 
   useEffect(() => {
     if (!id) {
-      setError('No se proporcionó un ID de solicitud.')
-      setLoading(false)
       return
     }
     axios
@@ -37,11 +35,20 @@ export default function CancelarSolicitudView() {
         motivo: motivo.trim() || undefined,
       })
       setDone(true)
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al cancelar la solicitud.')
+    } catch (err) {
+      const errorMsg = axios.isAxiosError(err) ? err.response?.data?.error || 'Error al cancelar la solicitud.' : 'Error al cancelar la solicitud.'
+      setError(errorMsg)
     } finally {
       setCancelling(false)
     }
+  }
+
+  if (!id) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}>
+        <p style={{ color: '#dc2626' }}>No se proporcionó un ID de solicitud.</p>
+      </div>
+    )
   }
 
   if (loading) {

@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken'
 export interface UsuarioPayload {
   id: number
   correo: string
-  rol: 'ADMIN' | 'USER'
+  rol: 'ADMIN' | 'SOLICITANTE'
 }
 
 const SECRET = process.env.JWT_SECRET ?? 'tigretrack-secret-dev'

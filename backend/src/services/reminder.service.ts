@@ -35,13 +35,13 @@ export async function procesarRecordatorios(): Promise<void> {
     where: { estado: 'Aprobado' },
     include: {
       usuario: {
-        select: { id: true, correo: true, rol: true },
+        select: { id: true, email: true, rol: true },
       },
     },
   })
 
   for (const solicitud of solicitudes) {
-    if (!solicitud.usuario?.correo) {
+    if (!solicitud.usuario?.email) {
       console.log('[CRON] Solicitud sin usuario asociado')
       continue
     }
@@ -57,7 +57,7 @@ export async function procesarRecordatorios(): Promise<void> {
 
     if (diffDias === 7 && !solicitud.recordatorio7DiasEnviado) {
       enviarCorreoRecordatorio({
-        destinatario: solicitud.usuario.correo,
+        destinatario: solicitud.usuario.email,
         solicitudId: solicitud.id,
         folio: solicitud.folio,
         nombreEvento: solicitud.nombreEvento,
@@ -72,14 +72,14 @@ export async function procesarRecordatorios(): Promise<void> {
         data: { recordatorio7DiasEnviado: true },
       })
 
-      console.log(`[CRON] Recordatorio enviado a ${solicitud.usuario.correo}`)
+      console.log(`[CRON] Recordatorio enviado a ${solicitud.usuario.email}`)
       enviados++
       continue
     }
 
     if (diffDias === 1 && !solicitud.recordatorio24HorasEnviado) {
       enviarCorreoRecordatorio({
-        destinatario: solicitud.usuario.correo,
+        destinatario: solicitud.usuario.email,
         solicitudId: solicitud.id,
         folio: solicitud.folio,
         nombreEvento: solicitud.nombreEvento,
@@ -94,7 +94,7 @@ export async function procesarRecordatorios(): Promise<void> {
         data: { recordatorio24HorasEnviado: true },
       })
 
-      console.log(`[CRON] Recordatorio enviado a ${solicitud.usuario.correo}`)
+      console.log(`[CRON] Recordatorio enviado a ${solicitud.usuario.email}`)
       enviados++
     }
   }

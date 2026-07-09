@@ -5,7 +5,7 @@ declare module 'express' {
     usuario?: {
       id: number
       correo: string
-      rol: 'ADMIN' | 'USER'
+      rol: 'ADMIN' | 'SOLICITANTE'
     }
   }
 }

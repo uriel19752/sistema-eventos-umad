@@ -13,6 +13,8 @@ export async function obtenerDashboard(
       ...(institucion ? { institucion } : {}),
       ...(fechaInicio ? { fechaInicio } : {}),
       ...(fechaFin ? { fechaFin } : {}),
+      ...(req.usuario?.id ? { usuarioId: req.usuario.id } : {}),
+      ...(req.usuario?.rol ? { rol: req.usuario.rol } : {}),
     });
     res.status(200).json(data);
   } catch (error: any) {

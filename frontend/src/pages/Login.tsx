@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import axios from 'axios'
+import { GoogleLogin } from '@react-oauth/google'
 import '../index.css'
 
 interface Props {
@@ -7,10 +8,19 @@ interface Props {
 }
 
 export default function Login({ onLogin }: Props) {
-  const [correo, setCorreo] = useState('')
+  const [mode, setMode] = useState<'login' | 'signup'>('login')
+  const [nombre, setNombre] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  function resetForm() {
+    setError('')
+    setNombre('')
+    setEmail('')
+    setPassword('')
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -18,8 +28,18 @@ export default function Login({ onLogin }: Props) {
     setLoading(true)
 
     try {
-      const res = await axios.post('/api/auth/login', { correo, password })
-      onLogin(res.data)
+      if (mode === 'login') {
+        const res = await axios.post('/api/auth/login', { email, password })
+        const { usuario, token } = res.data
+        localStorage.setItem('token', token)
+        onLogin({ id: usuario.id, correo: usuario.email, rol: usuario.rol, token })
+      } else {
+        await axios.post('/api/auth/signup', { nombre, email, password })
+        const res = await axios.post('/api/auth/login', { email, password })
+        const { usuario, token } = res.data
+        localStorage.setItem('token', token)
+        onLogin({ id: usuario.id, correo: usuario.email, rol: usuario.rol, token })
+      }
     } catch (err) {
       const msg = axios.isAxiosError(err)
         ? err.response?.data?.error ?? 'Error de conexión'
@@ -27,6 +47,20 @@ export default function Login({ onLogin }: Props) {
       setError(msg)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleGoogleSuccess(credential: string) {
+    try {
+      const res = await axios.post('/api/auth/google', { token: credential })
+      const { usuario, token } = res.data
+      localStorage.setItem('token', token)
+      onLogin({ id: usuario.id, correo: usuario.email, rol: usuario.rol, token })
+    } catch (err) {
+      const msg = axios.isAxiosError(err)
+        ? err.response?.data?.error ?? 'Error de autenticación con Google'
+        : 'Error de conexión'
+      setError(msg)
     }
   }
 
@@ -44,15 +78,12 @@ export default function Login({ onLogin }: Props) {
         padding: '3rem 2.5rem 2.5rem',
         position: 'relative', overflow: 'hidden',
       }}>
-        {/* Patrón sutil de puntos */}
         <div style={{
           position: 'absolute', inset: 0,
           backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.035) 1px, transparent 1px)',
           backgroundSize: '24px 24px',
           pointerEvents: 'none',
         }} />
-
-        {/* Círculos decorativos difuminados */}
         <div style={{
           position: 'absolute', top: '-120px', right: '-80px',
           width: '420px', height: '420px', borderRadius: '50%',
@@ -71,8 +102,6 @@ export default function Login({ onLogin }: Props) {
           background: 'radial-gradient(circle, rgba(37,99,235,0.08) 0%, transparent 70%)',
           filter: 'blur(60px)', pointerEvents: 'none',
         }} />
-
-        {/* Logo + Título corporativo */}
         <div style={{ position: 'relative', zIndex: 1 }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: '0.85rem',
@@ -104,7 +133,6 @@ export default function Login({ onLogin }: Props) {
               </div>
             </div>
           </div>
-
           <h2 style={{
             color: 'white', fontSize: '2rem', fontWeight: 800,
             lineHeight: 1.15, margin: '0 0 0.75rem',
@@ -119,8 +147,6 @@ export default function Login({ onLogin }: Props) {
             Plataforma oficial de cobertura y seguimiento de eventos de la UMAD
           </p>
         </div>
-
-        {/* Stats — tarjetas translúcidas */}
         <div style={{
           display: 'flex', flexDirection: 'column', gap: '0.85rem',
           position: 'relative', zIndex: 1,
@@ -157,8 +183,6 @@ export default function Login({ onLogin }: Props) {
             </div>
           ))}
         </div>
-
-        {/* Footer */}
         <div style={{
           position: 'relative', zIndex: 1,
           color: 'rgba(255,255,255,0.25)', fontSize: '0.7rem',
@@ -174,7 +198,6 @@ export default function Login({ onLogin }: Props) {
         padding: '2rem',
       }}>
         <div style={{ width: '100%', maxWidth: '420px' }}>
-          {/* Encabezado */}
           <div style={{ marginBottom: '2rem' }}>
             <span style={{
               display: 'inline-block', width: '32px', height: '3px',
@@ -185,24 +208,25 @@ export default function Login({ onLogin }: Props) {
               color: '#E11D48', textTransform: 'uppercase', letterSpacing: '0.12em',
               fontFamily: 'Inter, sans-serif',
             }}>
-              Acceso al sistema
+              {mode === 'login' ? 'Acceso al sistema' : 'Crear cuenta'}
             </p>
             <h1 style={{
               margin: '0', fontSize: '2.5rem', fontWeight: 800,
               color: '#0F172A', letterSpacing: '-0.03em',
               fontFamily: 'Inter, sans-serif',
             }}>
-              Bienvenido
+              {mode === 'login' ? 'Bienvenido' : 'Regístrate'}
             </h1>
             <p style={{
               margin: '0.5rem 0 0', color: '#64748B', fontSize: '0.925rem',
               fontWeight: 400,
             }}>
-              Ingresa tus credenciales para continuar
+              {mode === 'login'
+                ? 'Ingresa tus credenciales para continuar'
+                : 'Completa tus datos para crear una cuenta'}
             </p>
           </div>
 
-          {/* Banner de error condicional */}
           {error && (
             <div style={{
               background: '#FFF1F2', color: '#E11D48',
@@ -223,8 +247,28 @@ export default function Login({ onLogin }: Props) {
             </div>
           )}
 
-          {/* Formulario */}
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column' }}>
+            {mode === 'signup' && (
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{
+                  display: 'block', fontWeight: 700, marginBottom: '0.45rem',
+                  fontSize: '0.7rem', color: '#374151',
+                  textTransform: 'uppercase', letterSpacing: '0.04em',
+                  fontFamily: 'Inter, sans-serif',
+                }}>
+                  Nombre completo
+                </label>
+                <input
+                  type="text"
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  required
+                  placeholder="Tu nombre"
+                  className="tt-input"
+                  style={{ background: '#FAFBFC' }}
+                />
+              </div>
+            )}
             <div style={{ marginBottom: '1.25rem' }}>
               <label style={{
                 display: 'block', fontWeight: 700, marginBottom: '0.45rem',
@@ -236,8 +280,8 @@ export default function Login({ onLogin }: Props) {
               </label>
               <input
                 type="email"
-                value={correo}
-                onChange={(e) => setCorreo(e.target.value)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 required
                 placeholder="usuario@umad.edu.mx"
                 className="tt-input"
@@ -258,6 +302,7 @@ export default function Login({ onLogin }: Props) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                minLength={6}
                 placeholder={'\u2022'.repeat(10)}
                 className="tt-input"
                 style={{ background: '#FAFBFC' }}
@@ -272,11 +317,88 @@ export default function Login({ onLogin }: Props) {
                 borderRadius: '10px', marginTop: '0.75rem',
               }}
             >
-              {loading ? 'Verificando...' : 'Ingresar al sistema \u2192'}
+              {loading
+                ? 'Procesando...'
+                : mode === 'login'
+                  ? 'Ingresar al sistema \u2192'
+                  : 'Crear cuenta \u2192'}
             </button>
           </form>
 
-          {/* Nota de acceso */}
+          {/* Separador + Google */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '1rem',
+            margin: '1.5rem 0',
+          }}>
+            <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
+            <span style={{
+              fontSize: '0.75rem', color: '#94A3B8', fontWeight: 600,
+              whiteSpace: 'nowrap', textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}>
+              O entra con
+            </span>
+            <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <GoogleLogin
+              onSuccess={(credentialResponse) => {
+                if (credentialResponse.credential) {
+                  handleGoogleSuccess(credentialResponse.credential)
+                }
+              }}
+              onError={() => setError('Error al autenticar con Google')}
+              size="large"
+              width="340"
+              theme="outline"
+              text="signin_with"
+              shape="rectangular"
+            />
+          </div>
+
+          {/* Toggle login/signup */}
+          <div style={{
+            marginTop: '1.75rem', textAlign: 'center',
+            fontSize: '0.85rem', color: '#64748B',
+          }}>
+            {mode === 'login' ? (
+              <>
+                ¿No tienes cuenta?{' '}
+                <button
+                  type="button"
+                  onClick={() => { setMode('signup'); resetForm() }}
+                  style={{
+                    background: 'none', border: 'none', color: '#1E3A8A',
+                    fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem',
+                    fontFamily: 'Inter, sans-serif',
+                    textDecoration: 'underline',
+                    textUnderlineOffset: '2px',
+                  }}
+                >
+                  Registrarse
+                </button>
+              </>
+            ) : (
+              <>
+                ¿Ya tienes cuenta?{' '}
+                <button
+                  type="button"
+                  onClick={() => { setMode('login'); resetForm() }}
+                  style={{
+                    background: 'none', border: 'none', color: '#1E3A8A',
+                    fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem',
+                    fontFamily: 'Inter, sans-serif',
+                    textDecoration: 'underline',
+                    textUnderlineOffset: '2px',
+                  }}
+                >
+                  Iniciar sesión
+                </button>
+              </>
+            )}
+          </div>
+
           <div style={{
             marginTop: '2rem', padding: '1rem 1.25rem',
             background: 'rgba(30,58,138,0.04)',
@@ -293,7 +415,6 @@ export default function Login({ onLogin }: Props) {
         </div>
       </div>
 
-      {/* Responsive: ocultar panel izquierdo en móviles */}
       <style>{`
         @media (max-width: 768px) {
           #root > div > div:first-child {

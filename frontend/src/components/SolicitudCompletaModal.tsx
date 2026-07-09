@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, startTransition } from 'react'
 import axios from 'axios'
-import { CheckCircle, Download, QrCode, Edit2, Save, X, Loader2 } from 'lucide-react'
+import { CheckCircle, Download, QrCode, Edit2, Save, X, Loader2, UserCheck } from 'lucide-react'
 import { QRCodeCanvas } from 'qrcode.react'
-import html2pdf from 'html2pdf.js'
 import { COLORS } from '../theme/colors'
+import { PdfReport, type ColumnDef } from '../export'
 
 const MAPEO_JERARQUICO: Record<string, { id: string; nombre: string }[]> = {
   "1": [{ id: "1", nombre: "UMAD" }],
@@ -39,6 +39,7 @@ export interface DatosEspecificos {
   gestionExternaItems?: string[]
   necesitaAudiovisuales?: string
   audiovisualItems?: string[]
+  audiovisualesOtrosTexto?: string
 }
 
 export interface SolicitudFields {
@@ -139,10 +140,17 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
   const [editGestionExternaItems, setEditGestionExternaItems] = useState<string[]>([])
   const [editNecesitaAudiovisuales, setEditNecesitaAudiovisuales] = useState('')
   const [editAudiovisualItems, setEditAudiovisualItems] = useState<string[]>([])
+  const [editAudiovisualesOtrosTexto, setEditAudiovisualesOtrosTexto] = useState('')
 
   const [guardando, setGuardando] = useState(false)
   const [exportandoPDF, setExportandoPDF] = useState(false)
   const [error, setError] = useState('')
+
+  const [proveedores, setProveedores] = useState<{ id: number; nombre: string; especialidad: string | null }[]>([])
+  const [selectedProveedorIds, setSelectedProveedorIds] = useState<number[]>([])
+  const [savingAsignacion, setSavingAsignacion] = useState(false)
+  const [successAsignacion, setSuccessAsignacion] = useState('')
+
   const qrRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -180,10 +188,23 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
       setEditGestionExternaItems(de?.gestionExternaItems ?? [])
       setEditNecesitaAudiovisuales(de?.necesitaAudiovisuales ?? '')
       setEditAudiovisualItems(de?.audiovisualItems ?? [])
+      setEditAudiovisualesOtrosTexto(de?.audiovisualesOtrosTexto ?? '')
       setEditando(false)
       setError('')
     })
   }, [solicitud, materiales])
+
+  useEffect(() => {
+    if (!open || !solicitud?.id) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSuccessAsignacion('')
+    axios.get('/api/proveedores').then((res) => setProveedores(res.data)).catch(() => {})
+    axios.get(`/api/solicitudes/${solicitud.id}`).then((res) => {
+      const data = res.data
+      const asignaciones: { proveedorId: number }[] = data.asignacionProveedores ?? []
+      setSelectedProveedorIds(asignaciones.map((a) => a.proveedorId))
+    }).catch(() => {})
+  }, [open, solicitud?.id])
 
   const institucionesDisponibles = MAPEO_JERARQUICO[plantelId] || []
 
@@ -225,496 +246,200 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
       } catch { return null }
     })()
 
-    const now = new Date()
-    const fechaGeneracion = now.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
-    const horaGeneracion = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
-
-    const statusColors: Record<string, string> = {
-      Pendiente: '#F59E0B',
-      Aprobado: '#1E3A8A',
-      Completada: '#16A34A',
-      Cancelada: '#DC2626',
-    }
-    const estadoColor = statusColors[solicitud.estado ?? ''] ?? '#64748B'
-
-    const eventName = nombreEvento || solicitud.nombreEvento || '—'
-    const eventDateDisplay = solicitud.fechaEvento
-      ? new Date(solicitud.fechaEvento).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
-      : '—'
-    const mountTime = horaMontaje || formatearHoraInput(solicitud.horaMontaje) || '—'
-    const startTime = horaInicio || formatearHoraInput(solicitud.horaInicio) || '—'
-    const endTime = horaFin || formatearHoraInput(solicitud.horaFin) || '—'
-    const eventPlace = lugar || solicitud.lugarEspecifico || '—'
-    const eventLocation = ubicacion || solicitud.ubicacion || '—'
-    const eventResponsable = responsable || solicitud.responsableNombre || '—'
-    const eventArea = area || solicitud.departamentoSolicitante || '—'
-    const eventContact = contacto || solicitud.contacto || '—'
-    const eventPublic = publico || solicitud.publicoObjetivo || '—'
-    const eventAutorities = autoridades || solicitud.autoridadesAsistentes || '—'
-    const eventObjetivo = objetivo || solicitud.objetivoCobertura || 'No especificado'
-    const eventDesc = descripcion || solicitud.descripcion || 'No especificada'
-    const plantelName = NOMBRES_PLANTELES[plantelId] || solicitud.plantel?.nombre || '—'
-    const institucionName = NOMBRES_INSTITUCIONES[institucionId] || solicitud.institucion?.nombre || '—'
-
-    const materialesHtml = materiales.length > 0
-      ? materiales.map(m =>
-          `<div class="check-item">
-            <span class="check-icon">&#10003;</span>
-            <span>${m.tipoMaterial}${m.descripcionOtro ? ` <span class="check-desc">(${m.descripcionOtro})</span>` : ''}</span>
-           </div>`
-        ).join('')
-      : '<div class="check-item"><span style="color:#94A3B8;">No se especificaron materiales.</span></div>'
-
-    const tipoTiempo = startTime !== '—' && endTime !== '—' ? `${startTime} — ${endTime}` : startTime
-
-    const tempContainer = document.createElement('div')
-    tempContainer.innerHTML = `
-      <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-          font-family: 'Segoe UI', Arial, sans-serif;
-          color: #1E293B;
-          font-size: 9pt;
-          line-height: 1.45;
-        }
-        .pdf-wrapper {
-          width: 190mm;
-          padding: 1.8cm 1.6cm;
-        }
-
-        /* ── HEADER ── */
-        .pdf-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          padding-bottom: 0.9rem;
-          margin-bottom: 1.1rem;
-          border-bottom: 3px solid #E11D48;
-          position: relative;
-        }
-        .pdf-header-left { display: flex; flex-direction: column; gap: 0.15rem; }
-        .pdf-header-brand {
-          font-size: 11pt;
-          font-weight: 900;
-          color: #1E3A8A;
-          letter-spacing: -0.02em;
-        }
-        .pdf-header-brand span { color: #E11D48; }
-        .pdf-header-title {
-          font-size: 7pt;
-          font-weight: 700;
-          color: #64748B;
-          text-transform: uppercase;
-          letter-spacing: 0.12em;
-        }
-        .pdf-header-right {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 0.3rem;
-        }
-        .pdf-header-folio {
-          font-size: 10pt;
-          font-weight: 800;
-          color: #E11D48;
-          letter-spacing: 0.02em;
-        }
-        .pdf-header-meta {
-          font-size: 6.5pt;
-          color: #94A3B8;
-          font-weight: 500;
-        }
-        .pdf-status-badge {
-          display: inline-block;
-          padding: 0.15rem 0.65rem;
-          border-radius: 9999px;
-          font-size: 6.5pt;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          background: ${estadoColor};
-          color: #FFFFFF;
-        }
-        .pdf-header-qr {
-          margin-left: 0.75rem;
-          flex-shrink: 0;
-        }
-
-        /* ── RESUMEN ── */
-        .section-title {
-          font-size: 8.5pt;
-          font-weight: 800;
-          color: #1E3A8A;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          margin-bottom: 0.55rem;
-          padding-bottom: 0.3rem;
-          border-bottom: 1.5px solid #E2E8F0;
-        }
-        .resumen-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr 1fr;
-          gap: 0.5rem;
-          margin-bottom: 1rem;
-        }
-        .resumen-card {
-          background: #F8FAFC;
-          border: 1px solid #E2E8F0;
-          border-radius: 8px;
-          padding: 0.6rem 0.75rem;
-          page-break-inside: avoid;
-        }
-        .resumen-card .label {
-          font-size: 6pt;
-          font-weight: 700;
-          color: #64748B;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          margin-bottom: 0.15rem;
-        }
-        .resumen-card .value {
-          font-size: 8.5pt;
-          font-weight: 600;
-          color: #1E293B;
-          line-height: 1.3;
-        }
-
-        /* ── CRONOLOGÍA ── */
-        .cronologia {
-          display: grid;
-          grid-template-columns: 1fr 1fr 1fr;
-          gap: 0.5rem;
-          margin-bottom: 1rem;
-        }
-        .cronologia-card {
-          background: #F8FAFC;
-          border: 1px solid #E2E8F0;
-          border-radius: 8px;
-          padding: 0.6rem 0.75rem;
-          text-align: center;
-          page-break-inside: avoid;
-        }
-        .cronologia-card .icon-row {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.3rem;
-          margin-bottom: 0.15rem;
-        }
-        .cronologia-card .label {
-          font-size: 6pt;
-          font-weight: 700;
-          color: #64748B;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        }
-        .cronologia-card .value {
-          font-size: 10pt;
-          font-weight: 800;
-          color: #1E3A8A;
-        }
-
-        /* ── DETALLES ── */
-        .detalles-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 0.4rem 1rem;
-          margin-bottom: 1rem;
-        }
-        .detalle-item {
-          page-break-inside: avoid;
-          padding: 0.25rem 0;
-        }
-        .detalle-item .label {
-          font-size: 6pt;
-          font-weight: 700;
-          color: #64748B;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        }
-        .detalle-item .value {
-          font-size: 8pt;
-          font-weight: 500;
-          color: #1E293B;
-          margin-top: 0.05rem;
-        }
-
-        /* ── CHECKLIST ── */
-        .checklist {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.4rem;
-          margin-bottom: 1rem;
-        }
-        .check-item {
-          display: flex;
-          align-items: center;
-          gap: 0.4rem;
-          background: #F8FAFC;
-          border: 1px solid #E2E8F0;
-          border-radius: 6px;
-          padding: 0.4rem 0.7rem;
-          font-size: 8pt;
-          font-weight: 500;
-          color: #1E293B;
-          page-break-inside: avoid;
-        }
-        .check-icon {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 16px;
-          height: 16px;
-          border-radius: 50%;
-          background: #1E3A8A;
-          color: #FFFFFF;
-          font-size: 8pt;
-          font-weight: 700;
-          flex-shrink: 0;
-        }
-        .check-desc { color: #64748B; font-weight: 400; }
-
-        /* ── OBJETIVO ── */
-        .objetivo-box {
-          background: #F8FAFC;
-          border-left: 3px solid #1E3A8A;
-          border-radius: 6px;
-          padding: 0.6rem 0.85rem;
-          margin-bottom: 1rem;
-          font-size: 8pt;
-          color: #334155;
-          line-height: 1.5;
-          page-break-inside: avoid;
-        }
-
-        /* ── FOOTER ── */
-        .pdf-footer {
-          margin-top: 1.5rem;
-          padding-top: 0.65rem;
-          border-top: 1px solid #E2E8F0;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 6.5pt;
-          color: #94A3B8;
-          font-weight: 500;
-        }
-        .pdf-footer .brand { color: #1E3A8A; font-weight: 700; }
-        .signature-area {
-          margin-top: 1.5rem;
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 2rem;
-        }
-        .signature-line {
-          border-top: 1px solid #CBD5E1;
-          padding-top: 0.35rem;
-          margin-top: 2rem;
-          font-size: 7pt;
-          font-weight: 600;
-          color: #1E293B;
-          text-align: center;
-        }
-      </style>
-      <div class="pdf-wrapper">
-        <!-- ═══ HEADER ═══ -->
-        <div class="pdf-header">
-          <div class="pdf-header-left">
-            <div class="pdf-header-brand">TIGRETRACK <span>●</span></div>
-            <div class="pdf-header-title">Reporte de Cobertura Logística</div>
-            <div><span class="pdf-status-badge">${solicitud.estado || 'Sin estado'}</span></div>
-          </div>
-          <div class="pdf-header-right">
-            <div class="pdf-header-folio">${solicitud.folio}</div>
-            <div class="pdf-header-meta">Generado: ${fechaGeneracion} ${horaGeneracion}</div>
-            ${qrDataUrl ? `<div class="pdf-header-qr"><img src="${qrDataUrl}" width="48" height="48" alt="QR" /></div>` : ''}
-          </div>
-        </div>
-
-        <!-- ═══ RESUMEN EJECUTIVO ═══ -->
-        <div class="section-title">Resumen Ejecutivo</div>
-        <div class="resumen-grid">
-          <div class="resumen-card">
-            <div class="label">Evento</div>
-            <div class="value">${eventName}</div>
-          </div>
-          <div class="resumen-card">
-            <div class="label">Fecha</div>
-            <div class="value">${eventDateDisplay}</div>
-          </div>
-          <div class="resumen-card">
-            <div class="label">Horario</div>
-            <div class="value">${tipoTiempo}</div>
-          </div>
-          <div class="resumen-card">
-            <div class="label">Lugar</div>
-            <div class="value">${eventPlace}${eventLocation !== '—' ? ` — ${eventLocation}` : ''}</div>
-          </div>
-          <div class="resumen-card">
-            <div class="label">Responsable</div>
-            <div class="value">${eventResponsable}</div>
-          </div>
-          <div class="resumen-card">
-            <div class="label">Servicios</div>
-            <div class="value">${materiales.length > 0 ? materiales.map(m => m.tipoMaterial).join(', ') : 'No especificados'}</div>
-          </div>
-        </div>
-
-        <!-- ═══ CRONOLOGÍA DEL EVENTO ═══ -->
-        <div class="section-title">Cronología del Evento</div>
-        <div class="cronologia">
-          <div class="cronologia-card">
-            <div class="icon-row">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="14" x2="9" y2="9"/><polyline points="21 3 12 12"/><circle cx="5" cy="19" r="3"/></svg>
-              <span class="label">Montaje</span>
-            </div>
-            <div class="value">${mountTime}</div>
-          </div>
-          <div class="cronologia-card">
-            <div class="icon-row">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              <span class="label">Inicio</span>
-            </div>
-            <div class="value">${startTime}</div>
-          </div>
-          <div class="cronologia-card">
-            <div class="icon-row">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              <span class="label">Finalización</span>
-            </div>
-            <div class="value">${endTime}</div>
-          </div>
-        </div>
-
-        <!-- ═══ INFORMACIÓN DETALLADA ═══ -->
-        <div class="section-title">Información del Solicitante y Ubicación</div>
-        <div class="detalles-grid">
-          <div class="detalle-item">
-            <div class="label">Institución</div>
-            <div class="value">${institucionName}</div>
-          </div>
-          <div class="detalle-item">
-            <div class="label">Plantel</div>
-            <div class="value">${plantelName}</div>
-          </div>
-          <div class="detalle-item">
-            <div class="label">Área / Departamento</div>
-            <div class="value">${eventArea}</div>
-          </div>
-          <div class="detalle-item">
-            <div class="label">Responsable</div>
-            <div class="value">${eventResponsable}</div>
-          </div>
-          <div class="detalle-item">
-            <div class="label">Contacto</div>
-            <div class="value">${eventContact}</div>
-          </div>
-          <div class="detalle-item">
-            <div class="label">Ubicación Específica</div>
-            <div class="value">${eventLocation}</div>
-          </div>
-          <div class="detalle-item">
-            <div class="label">Público Objetivo</div>
-            <div class="value">${eventPublic}</div>
-          </div>
-          <div class="detalle-item">
-            <div class="label">Autoridades Asistentes</div>
-            <div class="value">${eventAutorities}</div>
-          </div>
-        </div>
-
-        <!-- ═══ ENTREGABLES COMPROMETIDOS ═══ -->
-        <div class="section-title">Entregables Comprometidos</div>
-        <div class="checklist">
-          ${materialesHtml}
-        </div>
-
-        ${(() => {
-          const de = (solicitud as any).datosEspecificos as DatosEspecificos | null | undefined
-          if (!de) return ''
-          const items: string[] = []
-          if (de.apoyoEstacionamiento === 'si') items.push('Estacionamiento / Acceso')
-          if (de.necesitaMantenimiento === 'si') {
-            const equipos = (de.mantenimientoItems ?? []).map((i: string) => {
-              const cant = i === 'Mesas' ? (de.cantMesas ?? 0) : i === 'Sillas' ? (de.cantSillas ?? 0) : i === 'Paños' ? (de.cantPanos ?? 0) : 0
-              return `${i}${cant > 0 ? ` (${cant})` : ''}`
-            })
-            items.push(`Mantenimiento: ${equipos.join(', ')}`)
-            if (de.gestionExternaItems?.length) items.push(`Gestión externa: ${de.gestionExternaItems.join(', ')}`)
-          }
-          if (de.necesitaAudiovisuales === 'si') items.push(`Audiovisual: ${(de.audiovisualItems ?? []).join(', ')}`)
-          if (!items.length) return ''
-          const croquisHtml = (solicitud as any).croquisUrl
-            ? `<div style="margin-top:0.4rem;font-size:7pt;color:#2563EB;font-weight:600;">Croquis disponible: ${(solicitud as any).croquisUrl}</div>`
-            : ''
-          return `
-        <!-- ═══ REQUERIMIENTOS LOGÍSTICOS ═══ -->
-        <div class="section-title">Requerimientos Logísticos</div>
-        <div class="checklist">
-          ${items.map((i: string) => `<div class="check-item"><span class="check-icon">&#10003;</span><span>${i}</span></div>`).join('')}
-        </div>
-        ${croquisHtml}
-        `
-        })()}
-
-        <!-- ═══ OBJETIVO ═══ -->
-        <div class="section-title">Objetivo de Cobertura</div>
-        <div class="objetivo-box">
-          ${eventObjetivo}
-        </div>
-
-        <!-- ═══ DESCRIPCIÓN ═══ -->
-        <div class="section-title">Descripción del Evento</div>
-        <div class="objetivo-box" style="border-left-color: #64748B;">
-          ${eventDesc}
-        </div>
-
-        <!-- ═══ FIRMAS ═══ -->
-        <div class="signature-area">
-          <div class="signature-line">Vo.Bo. del Solicitante</div>
-          <div class="signature-line">Autorización de la Coordinación</div>
-        </div>
-
-        <!-- ═══ FOOTER ═══ -->
-        <div class="pdf-footer">
-          <div>Generado automáticamente por <span class="brand">TigreTrack</span></div>
-          <div>${fechaGeneracion} — ${horaGeneracion}</div>
-        </div>
-      </div>
-    `
-
     try {
-      document.body.appendChild(tempContainer)
-      const folio = solicitud.folio || solicitud.id || 'documento'
-      const options = {
-        margin: 10,
-        filename: `Solicitud-${folio}.pdf`,
-        image: {
-          type: 'jpeg',
-          quality: 1
-        },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          letterRendering: true
-        },
-        jsPDF: {
-          unit: 'mm',
-          format: 'a4',
-          orientation: 'portrait'
-        },
-        pagebreak: {
-          mode: ['avoid-all', 'css', 'legacy']
+      const folio = solicitud.folio || String(solicitud.id) || 'documento'
+      const report = new PdfReport({ title: `Solicitud_${folio}`, headerFooter: true })
+      const doc = report.getDoc()
+      const pw = doc.internal.pageSize.getWidth()
+      const ph = doc.internal.pageSize.getHeight()
+      const ml = 15
+      const mr = 15
+      let y = 20
+
+      // ═══ CUSTOM HEADER ═══
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(16)
+      doc.setTextColor(30, 58, 138)
+      doc.text('TIGRETRACK', ml, y)
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7)
+      doc.setTextColor(100, 116, 139)
+      doc.text('REPORTE DE COBERTURA LOGÍSTICA', ml, y + 4.5)
+
+      const statusColors: Record<string, [number, number, number]> = {
+        Pendiente: [245, 158, 11],
+        Aprobado: [30, 58, 138],
+        Completada: [22, 163, 74],
+        Cancelada: [220, 38, 38],
+      }
+      const sColor = statusColors[solicitud.estado ?? ''] ?? [100, 116, 139]
+      doc.setFillColor(sColor[0], sColor[1], sColor[2])
+      doc.roundedRect(ml, y + 6.5, 32, 5, 2, 2, 'F')
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(5.5)
+      doc.setTextColor(255, 255, 255)
+      doc.text((solicitud.estado ?? 'SIN ESTADO').toUpperCase(), ml + 16, y + 10, { align: 'center' })
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.setTextColor(225, 29, 72)
+
+      const qrSize = 20
+      const qrRightX = pw - mr - 4
+      const qrX = qrRightX - qrSize
+
+      if (qrDataUrl) {
+        doc.addImage(qrDataUrl, 'PNG', qrX, y - 3, qrSize, qrSize)
+      }
+
+      const folioGap = 5
+      const folioMaxX = qrX - folioGap
+      const folioWidth = doc.getTextWidth(folio)
+      const folioX = Math.min(ml + 80, folioMaxX - folioWidth)
+      doc.text(folio, folioX, y)
+
+      y += 16
+      doc.setDrawColor(225, 29, 72)
+      doc.setLineWidth(0.6)
+      doc.line(ml, y, pw - mr, y)
+      y += 8
+      report.setCurrentY(y)
+
+      // ═══ RESUMEN EJECUTIVO ═══
+      report.addSectionTitle('Resumen Ejecutivo')
+
+      const eventName = nombreEvento || solicitud.nombreEvento || '—'
+      const eventDateDisplay = solicitud.fechaEvento
+        ? new Date(solicitud.fechaEvento).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+        : '—'
+      const mountTime = horaMontaje || formatearHoraInput(solicitud.horaMontaje) || '—'
+      const startTime = horaInicio || formatearHoraInput(solicitud.horaInicio) || '—'
+      const endTime = horaFin || formatearHoraInput(solicitud.horaFin) || '—'
+      const eventPlace = lugar || solicitud.lugarEspecifico || '—'
+      const eventLocation = ubicacion || solicitud.ubicacion || '—'
+      const eventResponsable = responsable || solicitud.responsableNombre || '—'
+      const tipoTiempo = startTime !== '—' && endTime !== '—' ? `${startTime} — ${endTime}` : startTime
+      const materialesStr = materiales.length > 0 ? materiales.map(m => m.tipoMaterial).join(', ') : 'No especificados'
+
+      report.addKpiCards([
+        { label: 'Evento', value: eventName, color: '#1E3A8A' },
+        { label: 'Fecha', value: eventDateDisplay, color: '#1E3A8A' },
+        { label: 'Horario', value: tipoTiempo, color: '#1E3A8A' },
+        { label: 'Lugar', value: eventPlace + (eventLocation !== '—' ? ` — ${eventLocation}` : ''), color: '#1E3A8A' },
+        { label: 'Responsable', value: eventResponsable, color: '#1E3A8A' },
+        { label: 'Servicios', value: materialesStr, color: '#1E3A8A' },
+      ])
+
+      // ═══ CRONOLOGÍA ═══
+      report.addSectionTitle('Cronología del Evento')
+      report.addKpiCards([
+        { label: 'Montaje', value: mountTime, color: '#F59E0B' },
+        { label: 'Inicio', value: startTime, color: '#16A34A' },
+        { label: 'Finalización', value: endTime, color: '#DC2626' },
+      ])
+
+      // ═══ INFORMACIÓN DETALLADA ═══
+      report.addSectionTitle('Información del Solicitante y Ubicación')
+
+      const instName = NOMBRES_INSTITUCIONES[institucionId] || solicitud.institucion?.nombre || '—'
+      const plantelName = NOMBRES_PLANTELES[plantelId] || solicitud.plantel?.nombre || '—'
+      const eventArea = area || solicitud.departamentoSolicitante || '—'
+      const eventContact = contacto || solicitud.contacto || '—'
+      const eventPublic = publico || solicitud.publicoObjetivo || '—'
+      const eventAutorities = autoridades || solicitud.autoridadesAsistentes || '—'
+
+      const detailItems = [
+        { label: 'Institución', value: instName },
+        { label: 'Plantel', value: plantelName },
+        { label: 'Área / Departamento', value: eventArea },
+        { label: 'Responsable', value: eventResponsable },
+        { label: 'Contacto', value: eventContact },
+        { label: 'Ubicación Específica', value: eventLocation },
+        { label: 'Público Objetivo', value: eventPublic },
+        { label: 'Autoridades Asistentes', value: eventAutorities },
+      ]
+      for (const item of detailItems) {
+        report.addBodyText(`${item.label}: ${item.value}`, { fontSize: 9, color: '#1E293B' })
+      }
+
+      // ═══ ENTREGABLES ═══
+      report.addSectionTitle('Entregables Comprometidos')
+      if (materiales.length > 0) {
+        const matColumns: ColumnDef[] = [
+          { header: 'Tipo de Material', dataKey: 'tipo', width: 60 },
+          { header: 'Descripción', dataKey: 'desc', width: 80 },
+        ]
+        const matData = materiales.map(m => ({
+          tipo: m.tipoMaterial,
+          desc: m.descripcionOtro ?? '—',
+        }))
+        report.addTable(matColumns, matData)
+      } else {
+        report.addBodyText('No se especificaron materiales.', { fontSize: 9, color: '#64748B' })
+      }
+
+      // ═══ REQUERIMIENTOS LOGÍSTICOS ═══
+      const de = solicitud.datosEspecificos as DatosEspecificos | null | undefined
+      if (de) {
+        const logItems: string[] = []
+        if (de.apoyoEstacionamiento === 'si') logItems.push('Estacionamiento / Acceso')
+        if (de.necesitaMantenimiento === 'si') {
+          const equipos = (de.mantenimientoItems ?? []).map((i: string) => {
+            const cant = i === 'Mesas' ? (de.cantMesas ?? 0) : i === 'Sillas' ? (de.cantSillas ?? 0) : i === 'Paños' ? (de.cantPanos ?? 0) : 0
+            return `${i}${cant > 0 ? ` (${cant})` : ''}`
+          })
+          logItems.push(`Mantenimiento: ${equipos.join(', ')}`)
+          if (de.gestionExternaItems?.length) logItems.push(`Gestión externa: ${de.gestionExternaItems.join(', ')}`)
+        }
+        if (de.necesitaAudiovisuales === 'si') {
+          let audiovisualStr = (de.audiovisualItems ?? []).join(', ')
+          if (de.audiovisualItems?.includes('Otros') && de.audiovisualesOtrosTexto) {
+            audiovisualStr = audiovisualStr.replace('Otros', `Otros (${de.audiovisualesOtrosTexto})`)
+          }
+          logItems.push(`Audiovisual: ${audiovisualStr}`)
+        }
+        if (logItems.length > 0) {
+          report.addSectionTitle('Requerimientos Logísticos')
+          for (const item of logItems) {
+            report.addBodyText(`• ${item}`, { fontSize: 9, color: '#1E293B' })
+          }
+          if (solicitud.croquisUrl) {
+            report.addBodyText(`Croquis disponible: ${solicitud.croquisUrl}`, { fontSize: 8, color: '#2563EB' })
+          }
         }
       }
-      await html2pdf()
-        .set(options as Record<string, unknown>)
-        .from(tempContainer)
-        .save()
-    } finally {
-      if (tempContainer.parentNode) {
-        document.body.removeChild(tempContainer)
+
+      // ═══ OBJETIVO ═══
+      const eventObjetivo = objetivo || solicitud.objetivoCobertura || 'No especificado'
+      report.addSectionTitle('Objetivo de Cobertura')
+      report.addBodyText(eventObjetivo, { fontSize: 9, color: '#334155' })
+
+      // ═══ DESCRIPCIÓN ═══
+      const eventDesc = descripcion || solicitud.descripcion || 'No especificada'
+      report.addSectionTitle('Descripción del Evento')
+      report.addBodyText(eventDesc, { fontSize: 9, color: '#334155' })
+
+      // ═══ FIRMAS ═══
+      const sigThreshold = ph - 20 - 15
+      if (report.getCurrentY() + 30 > sigThreshold) {
+        report.addPage()
       }
+      const sigYPos = Math.max(report.getCurrentY() + 10, sigThreshold)
+      doc.setDrawColor(203, 213, 225)
+      doc.setLineWidth(0.5)
+      doc.line(ml, sigYPos, ml + 75, sigYPos)
+      doc.line(pw - mr - 75, sigYPos, pw - mr, sigYPos)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7)
+      doc.setTextColor(30, 41, 59)
+      doc.text('Vo.Bo. del Solicitante', ml + 37.5, sigYPos + 4, { align: 'center' })
+      doc.text('Autorización de la Coordinación', pw - mr - 37.5, sigYPos + 4, { align: 'center' })
+
+      report.save(`Solicitud-${folio}.pdf`)
+    } catch (e) {
+      console.error('Error generando PDF de solicitud:', e)
+    } finally {
       setExportandoPDF(false)
     }
   }
@@ -757,6 +482,7 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
           gestionExternaItems: editNecesitaMantenimiento === 'si' ? editGestionExternaItems : [],
           necesitaAudiovisuales: editNecesitaAudiovisuales,
           audiovisualItems: editNecesitaAudiovisuales === 'si' ? editAudiovisualItems : [],
+          audiovisualesOtrosTexto: editNecesitaAudiovisuales === 'si' && editAudiovisualItems.includes('Otros') ? editAudiovisualesOtrosTexto : '',
         },
       }
       await axios.put(`/api/solicitudes/${solicitud.id}`, dto)
@@ -1093,7 +819,7 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
               <h2 style={{ ...sectionHeaderStyle }}>Logística y Requerimientos Específicos</h2>
 
               {!editando ? (() => {
-                const de = (solicitud as any).datosEspecificos as DatosEspecificos | null | undefined
+                const de = solicitud.datosEspecificos as DatosEspecificos | null | undefined
                 if (!de) return <p style={{ margin: 0, color: COLORS.textSecondary, fontSize: '0.85rem' }}>Sin requerimientos logísticos registrados.</p>
 
                 return (
@@ -1123,8 +849,8 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
                           {de.gestionExternaItems && de.gestionExternaItems.length > 0 && (
                             <div><span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Gestión externa: </span>{de.gestionExternaItems.join(' — ')}</div>
                           )}
-                          {(solicitud as any).croquisUrl && (
-                            <div><span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Croquis: </span><a href={(solicitud as any).croquisUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', fontWeight: 600, fontSize: '0.8rem' }}>Ver croquis</a></div>
+                          {solicitud.croquisUrl && (
+                            <div><span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Croquis: </span><a href={solicitud.croquisUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', fontWeight: 600, fontSize: '0.8rem' }}>Ver croquis</a></div>
                           )}
                         </div>
                       )}
@@ -1137,7 +863,15 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
                         <span style={{ display: 'inline-block', padding: '0.3rem 0.75rem', borderRadius: '20px', fontWeight: 600, fontSize: '0.8rem', background: de.necesitaAudiovisuales === 'si' ? '#DCFCE7' : '#F1F5F9', color: de.necesitaAudiovisuales === 'si' ? '#16A34A' : '#64748B' }}>{de.necesitaAudiovisuales === 'si' ? 'Sí' : 'No'}</span>
                       </div>
                       {de.necesitaAudiovisuales === 'si' && de.audiovisualItems && de.audiovisualItems.length > 0 && (
-                        <div style={{ marginTop: '0.5rem', marginLeft: '1rem' }}><span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Equipo: </span>{de.audiovisualItems.join(' — ')}</div>
+                        <div style={{ marginTop: '0.5rem', marginLeft: '1rem' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Equipo: </span>
+                          {de.audiovisualItems.map((item, idx) => (
+                            <span key={idx}>
+                              {idx > 0 && <span> — </span>}
+                              {item === 'Otros' && de.audiovisualesOtrosTexto ? `Otros (${de.audiovisualesOtrosTexto})` : item}
+                            </span>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1209,19 +943,128 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
                       ))}
                     </div>
                     {editNecesitaAudiovisuales === 'si' && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
-                        {['Sonido', 'Audio para computadora', 'Micrófono', 'Pantalla', 'Otros'].map((item) => (
-                          <label key={item} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontWeight: 500, fontSize: '0.82rem', color: '#334155' }}>
-                            <input type="checkbox" checked={editAudiovisualItems.includes(item)} onChange={() => setEditAudiovisualItems((prev) => prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item])} style={{ accentColor: '#2563EB' }} />{item}
-                          </label>
-                        ))}
-                      </div>
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
+                          {['Sonido', 'Audio para computadora', 'Micrófono', 'Pantalla', 'Otros'].map((item) => (
+                            <label key={item} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontWeight: 500, fontSize: '0.82rem', color: '#334155' }}>
+                              <input type="checkbox" checked={editAudiovisualItems.includes(item)} onChange={() => setEditAudiovisualItems((prev) => prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item])} style={{ accentColor: '#2563EB' }} />{item}
+                            </label>
+                          ))}
+                        </div>
+                        {editAudiovisualItems.includes('Otros') && (
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <label style={{ display: 'block', fontWeight: 500, fontSize: '0.82rem', color: '#475569', marginBottom: '0.25rem' }}>
+                              Especifique el apoyo o equipo requerido:
+                            </label>
+                            <input
+                              type="text"
+                              style={{ width: '100%', maxWidth: '400px', padding: '0.4rem 0.6rem', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.85rem', outline: 'none' }}
+                              placeholder="Ej. Proyector extra, cable HDMI de 10m..."
+                              value={editAudiovisualesOtrosTexto}
+                              onChange={(e) => setEditAudiovisualesOtrosTexto(e.target.value)}
+                            />
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
               )}
             </div>
             </>)}
+
+            {(solicitud?.estado === 'Aprobado') && (
+              <div style={{ ...sectionCardStyle, border: `2px solid ${COLORS.primary}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '8px',
+                    background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.accent})`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <UserCheck size={16} color="white" />
+                  </div>
+                  <h2 style={{ ...sectionHeaderStyle, margin: 0, border: 'none', padding: 0, fontSize: '1rem' }}>
+                    Asignación de Proveedores Externos
+                  </h2>
+                </div>
+                <p style={{ margin: '0 0 1rem 2.5rem', fontSize: '0.8rem', color: COLORS.textSecondary }}>
+                  Selecciona los proveedores externos asignados a este evento.
+                </p>
+
+                {successAsignacion && (
+                  <div style={{ padding: '0.5rem 0.75rem', marginBottom: '0.75rem', background: '#DCFCE7', border: '1px solid #86EFAC', borderRadius: '8px', color: '#16A34A', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <CheckCircle size={14} /> {successAsignacion}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                  {proveedores.length === 0 ? (
+                    <p style={{ fontSize: '0.85rem', color: COLORS.textSecondary }}>Cargando proveedores...</p>
+                  ) : (
+                    proveedores.map((p) => (
+                      <label
+                        key={p.id}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '0.6rem',
+                          padding: '0.5rem 0.75rem', borderRadius: '8px',
+                          background: selectedProveedorIds.includes(p.id) ? '#EEF2FF' : '#F8FAFC',
+                          border: `1.5px solid ${selectedProveedorIds.includes(p.id) ? COLORS.accent : COLORS.border}`,
+                          cursor: 'pointer', transition: 'all 0.15s',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedProveedorIds.includes(p.id)}
+                          onChange={() => {
+                            setSelectedProveedorIds((prev) =>
+                              prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
+                            )
+                          }}
+                          style={{ width: '1rem', height: '1rem', accentColor: COLORS.accent }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.85rem', color: COLORS.textPrimary }}>{p.nombre}</span>
+                          {p.especialidad && (
+                            <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: COLORS.textSecondary }}>({p.especialidad})</span>
+                          )}
+                        </div>
+                      </label>
+                    ))
+                  )}
+                </div>
+
+                <button
+                  onClick={async () => {
+                    setSavingAsignacion(true)
+                    setSuccessAsignacion('')
+                    try {
+                      await axios.post(`/api/solicitudes/${solicitud.id}/asignar-proveedores`, {
+                        proveedorIds: selectedProveedorIds,
+                      })
+                      setSuccessAsignacion('Asignación guardada correctamente')
+                    } catch {
+                      setError('Error al guardar la asignación de proveedores')
+                    } finally {
+                      setSavingAsignacion(false)
+                    }
+                  }}
+                  disabled={savingAsignacion}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                    padding: '0.55rem 1.25rem',
+                    background: savingAsignacion ? '#94A3B8' : COLORS.accent,
+                    color: COLORS.white, border: 'none', borderRadius: '8px',
+                    fontWeight: 600, fontSize: '0.85rem', cursor: savingAsignacion ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {savingAsignacion ? 'Guardando...' : <>
+                    <Save size={15} />
+                    Guardar Asignación
+                  </>}
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <p style={{ textAlign: 'center', color: COLORS.textSecondary, fontSize: '0.9rem' }}>Cargando información de la solicitud...</p>

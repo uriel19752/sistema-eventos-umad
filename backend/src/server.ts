@@ -12,7 +12,9 @@ import auditoriaRoutes from './routes/auditoria.routes.js'
 import calendarioRoutes from './routes/calendario.routes.js'
 import notificacionRoutes from './routes/notificacion.routes.js'
 import reportesRoutes from './routes/reportes.routes.js'
+import proveedorRoutes from './routes/proveedor.routes.js'
 import { iniciarReminderJob } from './jobs/reminder.job.js'
+import { iniciarRecordatorioProveedoresJob } from './cron/proveedorReminder.cron.js'
 
 dotenv.config()
 
@@ -44,8 +46,10 @@ app.use('/api/calendario', calendarioRoutes)
 app.use('/api/notificaciones', notificacionRoutes)
 app.use('/api/auditorias', auditoriaRoutes)
 app.use('/api/reportes', reportesRoutes)
+app.use('/api/proveedores', proveedorRoutes)
 
 iniciarReminderJob()
+iniciarRecordatorioProveedoresJob()
 
 app.listen(PORT, async () => {
   try {

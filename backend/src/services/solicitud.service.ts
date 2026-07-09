@@ -8,6 +8,8 @@ import {
   enviarAlertaCancelacionTardia,
   enviarCorreoAprobacion,
   enviarCorreoCancelacion,
+  enviarCorreoConfirmacionSolicitud,
+  enviarNotificacionProveedor,
 } from "./mailService.js";
 import {
   crearEventoSolicitud,
@@ -84,7 +86,8 @@ const ESTADOS_VALIDOS = ["Pendiente", "Aprobado", "Completada", "Cancelada"];
 
 export interface UsuarioAuth {
   id: number;
-  rol: "ADMIN" | "USER";
+  email?: string;
+  rol: "ADMIN" | "SOLICITANTE";
 }
 
 console.log("=== ENTRE A ACTUALIZAR ESTADO ===");
@@ -171,6 +174,33 @@ export async function crearSolicitud(
   }).catch((e: any) => console.error("[MAIL] Error enviando correo", e));
 
   prisma.usuario
+    .findUnique({
+      where: { id: usuario.id },
+      select: { email: true },
+    })
+    .then((creador) => {
+      console.log("[MAIL] Email destinatario (creador):", creador?.email);
+      if (creador?.email) {
+        enviarCorreoConfirmacionSolicitud({
+          destinatario: creador.email,
+          solicitudId: solicitud.id,
+          folio: solicitud.folio,
+          nombreEvento: solicitud.nombreEvento,
+          fechaEvento: formatDate(solicitud.fechaEvento),
+          horaInicio: formatTime(solicitud.horaInicio),
+          responsableNombre: solicitud.responsableNombre,
+        }).catch((e: any) =>
+          console.error("[MAIL] Error enviando confirmación al solicitante", e),
+        );
+      } else {
+        console.log("[MAIL] Creador sin email. No se envió confirmación.");
+      }
+    })
+    .catch((e: any) =>
+      console.error("[MAIL] Error buscando creador para confirmación", e),
+    );
+
+  prisma.usuario
     .findMany({ where: { rol: "ADMIN" }, select: { id: true } })
     .then((admins) => {
       for (const admin of admins) {
@@ -226,13 +256,15 @@ export async function obtenerSolicitudes(usuario: UsuarioAuth) {
       fechaSolicitud: true,
       googleEventId: true,
       googleEventLink: true,
+      datosEspecificos: true,
+      croquisUrl: true,
       plantelId: true,
       institucionId: true,
       plantel: true,
       institucion: true,
       usuarioId: true,
       usuario: {
-        select: { id: true, correo: true, rol: true },
+        select: { id: true, email: true, rol: true },
       },
     },
     orderBy: {
@@ -255,7 +287,7 @@ export async function obtenerSolicitudPorId(id: number, usuario: UsuarioAuth) {
       institucion: true,
       materialSolicitado: true,
       usuario: {
-        select: { id: true, correo: true, rol: true },
+        select: { id: true, email: true, rol: true },
       },
     },
   });
@@ -298,7 +330,7 @@ export async function actualizarEstado(
     where: { id },
     include: {
       usuario: {
-        select: { id: true, correo: true, rol: true },
+        select: { id: true, email: true, rol: true },
       },
     },
   });
@@ -395,6 +427,11 @@ export async function actualizarEstado(
     const fechaHoraEvento = new Date(`${fechaEventoStr}T${horaInicioStr}`);
     const tardia = fechaHoraEvento.getTime() - Date.now() < MS_IN_48_HOURS;
 
+    const proveedoresCancelacion = await prisma.asignacionProveedor.findMany({
+      where: { solicitudId: id },
+      include: { proveedor: true },
+    })
+
     const resultado = await prisma.$transaction(async (tx) => {
       const actualizada = await tx.solicitudEvento.update({
         where: { id },
@@ -434,9 +471,9 @@ export async function actualizarEstado(
       );
     }
 
-    if (solicitudActual.usuario?.correo) {
+    if (solicitudActual.usuario?.email) {
       enviarCorreoCancelacion({
-        destinatario: solicitudActual.usuario.correo,
+        destinatario: solicitudActual.usuario.email,
         solicitudId: solicitudActual.id,
         folio: solicitudActual.folio,
         nombreEvento: solicitudActual.nombreEvento,
@@ -461,6 +498,25 @@ export async function actualizarEstado(
       ).catch((e) =>
         console.error("[NOTIFICACION] Error creando notificación", e),
       );
+    }
+
+    for (const ap of proveedoresCancelacion) {
+      if (ap.proveedor.email) {
+        enviarNotificacionProveedor('cancelacion', {
+          proveedorNombre: ap.proveedor.nombre,
+          proveedorEmail: ap.proveedor.email,
+          folio: solicitudActual.folio,
+          nombreEvento: solicitudActual.nombreEvento,
+          fechaEvento: formatDate(solicitudActual.fechaEvento),
+          horaInicio: formatTime(solicitudActual.horaInicio),
+          horaFin: formatTime(solicitudActual.horaFin),
+          lugar: solicitudActual.lugarEspecifico ?? '',
+          responsable: solicitudActual.responsableNombre,
+          contacto: solicitudActual.contacto ?? '',
+        }).catch((e) =>
+          console.error(`[MAIL] Error al notificar cancelación a ${ap.proveedor.email}:`, e),
+        )
+      }
     }
 
     return resultado;
@@ -489,9 +545,9 @@ export async function actualizarEstado(
         console.error("[Google Calendar] Error creando evento:", e),
       );
 
-    if (solicitudActual.usuario?.correo) {
+    if (solicitudActual.usuario?.email) {
       enviarCorreoAprobacion({
-        destinatario: solicitudActual.usuario.correo,
+        destinatario: solicitudActual.usuario.email,
         solicitudId: solicitudActual.id,
         folio: solicitudActual.folio,
         nombreEvento: solicitudActual.nombreEvento,
@@ -689,4 +745,24 @@ export async function editarSolicitud(
   }
 
   return solicitudActualizada;
+}
+
+export async function asignarProveedores(
+  solicitudId: number,
+  proveedorIds: number[],
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.asignacionProveedor.deleteMany({ where: { solicitudId } })
+
+    if (proveedorIds.length > 0) {
+      await tx.asignacionProveedor.createMany({
+        data: proveedorIds.map((proveedorId) => ({ solicitudId, proveedorId })),
+      })
+    }
+
+    return tx.asignacionProveedor.findMany({
+      where: { solicitudId },
+      include: { proveedor: true },
+    })
+  })
 }

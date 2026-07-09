@@ -39,8 +39,8 @@ function plantillaCorreoWrapper(titulo: string, cuerpoHtml: string): string {
 const transport = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'axelc.p6@gmail.com',
-    pass: process.env.EMAIL_PASS ?? '',
+    user: process.env.MAIL_USER ?? '',
+    pass: process.env.MAIL_PASS ?? '',
   },
 })
 
@@ -71,6 +71,7 @@ interface DatosSolicitud {
 
 export async function enviarAlertaNuevaSolicitud(datos: DatosSolicitud): Promise<void> {
   console.log('[MAIL] Enviando correo de nueva solicitud');
+  console.log('[MAIL] Email destinatario (admin):', 'josudcb.barca@gmail.com, 4ngel3duardofongestrada@gmail.com');
 
   const cuerpo = `
     <p><strong>Folio:</strong> ${datos.folio}</p>
@@ -93,6 +94,41 @@ export async function enviarAlertaNuevaSolicitud(datos: DatosSolicitud): Promise
   })
 
   console.log('[MAIL] Correo enviado correctamente');
+}
+
+export async function enviarCorreoConfirmacionSolicitud(datos: DatosNotificacionEstado): Promise<void> {
+  console.log('[MAIL] Enviando confirmación al solicitante');
+  console.log('[MAIL] Email destinatario (solicitante):', datos.destinatario);
+
+  if (!datos.destinatario) {
+    console.error('[MAIL] Error: destinatario indefinido — no se puede enviar confirmación');
+    return;
+  }
+
+  const cuerpo = `
+    <p>Estimado(a) responsable,</p>
+    <p>Su solicitud de cobertura ha sido <strong>recibida exitosamente</strong> y se encuentra en revisión.</p>
+    <p>A continuación se presentan los detalles de su evento:</p>
+    <p><strong>Evento:</strong> ${datos.nombreEvento}</p>
+    <p><strong>Folio:</strong> ${datos.folio}</p>
+    <p><strong>Fecha del evento:</strong> ${datos.fechaEvento}</p>
+    <p><strong>Hora de inicio:</strong> ${datos.horaInicio}</p>
+    <p><strong>Responsable:</strong> ${datos.responsableNombre}</p>
+    <p>Recibirá una notificación cuando su solicitud sea aprobada.</p>
+    ${accionesSolicitudHtml(datos.solicitudId)}
+    <p>Atentamente,<br/>Sistema de Eventos UMAD</p>
+  `
+
+  const html = plantillaCorreoWrapper('Solicitud de cobertura recibida', cuerpo)
+
+  await transport.sendMail({
+    from: '"Sistema Eventos UMAD" <axelc.p6@gmail.com>',
+    to: datos.destinatario,
+    subject: `Solicitud recibida - ${datos.folio}`,
+    html,
+  })
+
+  console.log('[MAIL] Confirmación enviada correctamente');
 }
 
 export async function enviarAlertaCancelacionTardia(datos: DatosSolicitud & { tardia: boolean }): Promise<void> {
@@ -132,6 +168,12 @@ interface DatosNotificacionEstado {
 
 export async function enviarCorreoAprobacion(datos: DatosNotificacionEstado): Promise<void> {
   console.log('[MAIL] Enviando correo de aprobación')
+  console.log('[MAIL] Email destinatario (aprobación):', datos.destinatario);
+
+  if (!datos.destinatario) {
+    console.error('[MAIL] Error: destinatario indefinido — no se puede enviar correo de aprobación');
+    return;
+  }
 
   const cuerpo = `
     <p>Estimado(a) responsable,</p>
@@ -147,7 +189,7 @@ export async function enviarCorreoAprobacion(datos: DatosNotificacionEstado): Pr
     <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:18px;margin:20px 0;text-align:center;">
       <p style="margin:0 0 6px;font-weight:700;color:#92400e;font-size:15px;">📋 Evaluación del servicio</p>
       <p style="margin:0 0 14px;color:#78350f;font-size:13px;">Lo invitamos a evaluar la calidad del servicio recibido:</p>
-      <a href="http://localhost:5173/evaluar/${datos.folio}" style="display:inline-block;background:#f59e0b;color:#ffffff;padding:10px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;">Evaluar servicio</a>
+      <a href="${FRONTEND_URL}/evaluar/${datos.folio}" style="display:inline-block;background:#f59e0b;color:#ffffff;padding:10px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;">Evaluar servicio</a>
     </div>
 
     ${accionesSolicitudHtml(datos.solicitudId)}
@@ -179,6 +221,12 @@ interface DatosRecordatorio {
 
 export async function enviarCorreoRecordatorio(datos: DatosRecordatorio): Promise<void> {
   console.log('[MAIL] Enviando correo recordatorio')
+  console.log('[MAIL] Email destinatario (recordatorio):', datos.destinatario);
+
+  if (!datos.destinatario) {
+    console.error('[MAIL] Error: destinatario indefinido — no se puede enviar recordatorio');
+    return;
+  }
 
   const diasTexto = datos.diasRestantes === 1
     ? 'Su evento se realizará mañana.'
@@ -211,6 +259,12 @@ export async function enviarCorreoRecordatorio(datos: DatosRecordatorio): Promis
 
 export async function enviarCorreoCancelacion(datos: DatosNotificacionEstado): Promise<void> {
   console.log('[MAIL] Enviando correo de cancelación')
+  console.log('[MAIL] Email destinatario (cancelación):', datos.destinatario);
+
+  if (!datos.destinatario) {
+    console.error('[MAIL] Error: destinatario indefinido — no se puede enviar correo de cancelación');
+    return;
+  }
 
   const motivoHtml = datos.motivo
     ? `<p><strong>Motivo:</strong><br/>${datos.motivo}</p>`
@@ -253,6 +307,12 @@ interface DatosModificacion {
 
 export async function enviarCorreoModificacion(datos: DatosModificacion): Promise<void> {
   console.log('[MAIL] Enviando correo de modificación')
+  console.log('[MAIL] Email destinatario (modificación):', datos.editadoPor === 'admin' ? datos.emailDocente : 'josudcb.barca@gmail.com, 4ngel3duardofongestrada@gmail.com');
+
+  if (datos.editadoPor === 'admin' && !datos.emailDocente) {
+    console.error('[MAIL] Error: emailDocente indefinido — no se puede enviar correo de modificación al docente');
+    return;
+  }
 
   const cuerpo = `
     <p>Se ha realizado una modificación a la solicitud de cobertura con los siguientes detalles:</p>
@@ -284,4 +344,120 @@ export async function enviarCorreoModificacion(datos: DatosModificacion): Promis
   }
 
   console.log('[MAIL] Correo de modificación enviado')
+}
+
+interface ProveedorEvento {
+  proveedorNombre: string
+  proveedorEmail: string
+  folio: string
+  nombreEvento: string
+  fechaEvento: string
+  horaInicio: string
+  horaFin: string
+  lugar: string
+  responsable: string
+  contacto: string
+}
+
+export async function enviarNotificacionProveedor(
+  tipo: 'asignacion' | 'cancelacion' | 'recordatorio',
+  datos: ProveedorEvento,
+): Promise<void> {
+  if (tipo === 'asignacion') {
+    const cuerpo = `
+      <p>Estimado(a) <strong>${datos.proveedorNombre}</strong>,</p>
+      <p>Nos complace informarle que ha sido <strong>seleccionado(a)</strong> para brindar sus servicios en el siguiente evento institucional:</p>
+
+      <table style="width:100%;border-collapse:collapse;margin:18px 0;background:#f8fafc;border-radius:8px;overflow:hidden;">
+        <tr><td style="padding:10px 14px;font-weight:700;color:#1e3a8a;border-bottom:1px solid #e2e8f0;font-size:13px;">Folio</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;">${datos.folio}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#1e3a8a;border-bottom:1px solid #e2e8f0;font-size:13px;">Evento</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;">${datos.nombreEvento}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#1e3a8a;border-bottom:1px solid #e2e8f0;font-size:13px;">Fecha</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;">${datos.fechaEvento}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#1e3a8a;border-bottom:1px solid #e2e8f0;font-size:13px;">Horario</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;">${datos.horaInicio} — ${datos.horaFin}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#1e3a8a;border-bottom:1px solid #e2e8f0;font-size:13px;">Ubicación</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;">${datos.lugar}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#1e3a8a;border-bottom:1px solid #e2e8f0;font-size:13px;">Responsable</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;">${datos.responsable}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#1e3a8a;font-size:13px;">Contacto</td><td style="padding:10px 14px;font-size:13px;">${datos.contacto}</td></tr>
+      </table>
+
+      <p>Le agradecemos su participación y le solicitamos presentarse puntualmente el día del evento en la ubicación indicada.</p>
+      <p>Si tiene alguna duda o requiere más información, no dude en ponerse en contacto con el responsable del evento.</p>
+      <p style="margin-top:20px;">Atentamente,<br/><strong>Coordinación de Eventos — UMAD</strong></p>
+    `
+
+    const html = plantillaCorreoWrapper('Confirmación de Servicio Externo — UMAD', cuerpo)
+
+    await transport.sendMail({
+      from: '"Sistema Eventos UMAD" <axelc.p6@gmail.com>',
+      to: datos.proveedorEmail,
+      subject: `Confirmación de servicio — ${datos.nombreEvento}`,
+      html,
+    })
+
+    console.log(`[MAIL] Correo de asignación enviado a ${datos.proveedorEmail}`)
+  } else if (tipo === 'cancelacion') {
+    const cuerpo = `
+      <div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:18px 20px;margin-bottom:18px;text-align:center;">
+        <p style="margin:0 0 4px;font-size:20px;font-weight:800;color:#991b1b;">⚠ AVISO IMPORTANTE</p>
+        <p style="margin:0;font-weight:700;color:#dc2626;font-size:15px;">Cancelación de Evento</p>
+      </div>
+
+      <p>Estimado(a) <strong>${datos.proveedorNombre}</strong>,</p>
+      <p>Lamentamos informarle que el evento para el cual fue asignado(a) ha sido <strong>cancelado</strong>. Por lo tanto, su servicio ya <strong>no será requerido</strong>.</p>
+
+      <table style="width:100%;border-collapse:collapse;margin:18px 0;background:#fef2f2;border-radius:8px;overflow:hidden;">
+        <tr><td style="padding:10px 14px;font-weight:700;color:#991b1b;border-bottom:1px solid #fca5a5;font-size:13px;">Folio</td><td style="padding:10px 14px;border-bottom:1px solid #fca5a5;font-size:13px;">${datos.folio}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#991b1b;border-bottom:1px solid #fca5a5;font-size:13px;">Evento</td><td style="padding:10px 14px;border-bottom:1px solid #fca5a5;font-size:13px;">${datos.nombreEvento}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#991b1b;border-bottom:1px solid #fca5a5;font-size:13px;">Fecha programada</td><td style="padding:10px 14px;border-bottom:1px solid #fca5a5;font-size:13px;">${datos.fechaEvento}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#991b1b;border-bottom:1px solid #fca5a5;font-size:13px;">Horario</td><td style="padding:10px 14px;border-bottom:1px solid #fca5a5;font-size:13px;">${datos.horaInicio} — ${datos.horaFin}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#991b1b;font-size:13px;">Ubicación</td><td style="padding:10px 14px;font-size:13px;">${datos.lugar}</td></tr>
+      </table>
+
+      <p style="margin-top:18px;">Agradecemos su disponibilidad y le ofrecemos una disculpa por los inconvenientes que esto pueda ocasionar. Quedamos a su disposición para futuras colaboraciones.</p>
+      <p>Atentamente,<br/><strong>Coordinación de Eventos — UMAD</strong></p>
+    `
+
+    const html = plantillaCorreoWrapper('AVISO IMPORTANTE: Cancelación de Evento — UMAD', cuerpo)
+
+    await transport.sendMail({
+      from: '"Sistema Eventos UMAD" <axelc.p6@gmail.com>',
+      to: datos.proveedorEmail,
+      subject: `Cancelación de evento — ${datos.nombreEvento}`,
+      html,
+    })
+
+    console.log(`[MAIL] Correo de cancelación enviado a ${datos.proveedorEmail}`)
+  } else if (tipo === 'recordatorio') {
+    const cuerpo = `
+      <div style="background:#fefce8;border:2px solid #eab308;border-radius:10px;padding:18px 20px;margin-bottom:18px;text-align:center;">
+        <p style="margin:0 0 4px;font-size:20px;font-weight:800;color:#854d0e;">📅 RECORDATORIO</p>
+        <p style="margin:0;font-weight:700;color:#a16207;font-size:15px;">Servicio programado para mañana</p>
+      </div>
+
+      <p>Estimado(a) <strong>${datos.proveedorNombre}</strong>,</p>
+      <p>Le recordamos que tiene un servicio <strong>agendado para mañana</strong>. A continuación los detalles:</p>
+
+      <table style="width:100%;border-collapse:collapse;margin:18px 0;background:#fefce8;border-radius:8px;overflow:hidden;">
+        <tr><td style="padding:10px 14px;font-weight:700;color:#854d0e;border-bottom:1px solid #fde68a;font-size:13px;">Folio</td><td style="padding:10px 14px;border-bottom:1px solid #fde68a;font-size:13px;">${datos.folio}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#854d0e;border-bottom:1px solid #fde68a;font-size:13px;">Evento</td><td style="padding:10px 14px;border-bottom:1px solid #fde68a;font-size:13px;">${datos.nombreEvento}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#854d0e;border-bottom:1px solid #fde68a;font-size:13px;">Fecha</td><td style="padding:10px 14px;border-bottom:1px solid #fde68a;font-size:13px;">${datos.fechaEvento}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#854d0e;border-bottom:1px solid #fde68a;font-size:13px;">Horario</td><td style="padding:10px 14px;border-bottom:1px solid #fde68a;font-size:13px;">${datos.horaInicio} — ${datos.horaFin}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#854d0e;border-bottom:1px solid #fde68a;font-size:13px;">Ubicación</td><td style="padding:10px 14px;border-bottom:1px solid #fde68a;font-size:13px;">${datos.lugar}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#854d0e;border-bottom:1px solid #fde68a;font-size:13px;">Responsable</td><td style="padding:10px 14px;border-bottom:1px solid #fde68a;font-size:13px;">${datos.responsable}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;color:#854d0e;font-size:13px;">Contacto</td><td style="padding:10px 14px;font-size:13px;">${datos.contacto}</td></tr>
+      </table>
+
+      <p>Le solicitamos presentarse puntualmente en la ubicación indicada. Si tiene alguna duda, comuníquese con el responsable del evento.</p>
+      <p style="margin-top:20px;">Atentamente,<br/><strong>Coordinación de Eventos — UMAD</strong></p>
+    `
+
+    const html = plantillaCorreoWrapper('RECORDATORIO: Servicio mañana — UMAD', cuerpo)
+
+    await transport.sendMail({
+      from: '"Sistema Eventos UMAD" <axelc.p6@gmail.com>',
+      to: datos.proveedorEmail,
+      subject: `Recordatorio de servicio — ${datos.nombreEvento}`,
+      html,
+    })
+
+    console.log(`[MAIL] Correo de recordatorio enviado a ${datos.proveedorEmail}`)
+  }
 }

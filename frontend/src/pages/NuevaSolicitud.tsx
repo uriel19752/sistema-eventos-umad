@@ -90,6 +90,7 @@ export default function NuevaSolicitud() {
   const [gestionExternaItems, setGestionExternaItems] = useState<string[]>([]);
   const [necesitaAudiovisuales, setNecesitaAudiovisuales] = useState("");
   const [audiovisualItems, setAudiovisualItems] = useState<string[]>([]);
+  const [audiovisualesOtrosTexto, setAudiovisualesOtrosTexto] = useState("");
 
   useEffect(() => {
     async function cargarCatalogos() {
@@ -124,7 +125,7 @@ export default function NuevaSolicitud() {
       return;
     }
 
-    const fechaSel = new Date(fechaEvento);
+    const fechaSel = new Date(fechaEvento + "T12:00:00");
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
     const fechaMinima = new Date(hoy);
@@ -199,6 +200,7 @@ export default function NuevaSolicitud() {
           gestionExternaItems: necesitaMantenimiento === "si" ? gestionExternaItems : [],
           necesitaAudiovisuales,
           audiovisualItems: necesitaAudiovisuales === "si" ? audiovisualItems : [],
+          audiovisualesOtrosTexto: necesitaAudiovisuales === "si" && audiovisualItems.includes("Otros") ? audiovisualesOtrosTexto : "",
         },
         generarQR: true,
       });
@@ -250,6 +252,7 @@ export default function NuevaSolicitud() {
     setGestionExternaItems([]);
     setNecesitaAudiovisuales("");
     setAudiovisualItems([]);
+    setAudiovisualesOtrosTexto("");
   }
 
   function descargarQR() {
@@ -286,6 +289,23 @@ export default function NuevaSolicitud() {
     setAudiovisualItems((prev) =>
       prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
     );
+  };
+
+  const handleFechaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError("");
+    const nuevaFecha = e.target.value;
+    setFechaEvento(nuevaFecha);
+
+    if (nuevaFecha) {
+      const fechaSel = new Date(nuevaFecha + "T12:00:00");
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      const fechaMinima = new Date(hoy);
+      fechaMinima.setDate(fechaMinima.getDate() + 7);
+      if (fechaSel < fechaMinima) {
+        setError(`La solicitud debe hacerse con mínimo 7 días de anticipación (mín: ${fechaMinima.toISOString().split("T")[0]})`);
+      }
+    }
   };
 
   const institucionesDisponibles = MAPEO_JERARQUICO[plantelId] || [];
@@ -679,7 +699,8 @@ export default function NuevaSolicitud() {
                   <input
                     type="date"
                     value={fechaEvento}
-                    onChange={(e) => setFechaEvento(e.target.value)}
+                    onChange={handleFechaChange}
+                    min={new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
                     required
                     className="tigretrack-input"
                     style={inputStyle}
@@ -1253,19 +1274,35 @@ export default function NuevaSolicitud() {
             </div>
 
             {necesitaAudiovisuales === "si" && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.75rem", marginTop: "1.25rem" }}>
-                {["Sonido", "Audio para computadora", "Micrófono", "Pantalla", "Otros"].map((item) => (
-                  <label key={item} style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 500, fontSize: "0.85rem", color: "#334155" }}>
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.75rem", marginTop: "1.25rem" }}>
+                  {["Sonido", "Audio para computadora", "Micrófono", "Pantalla", "Otros"].map((item) => (
+                    <label key={item} style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 500, fontSize: "0.85rem", color: "#334155" }}>
+                      <input
+                        type="checkbox"
+                        checked={audiovisualItems.includes(item)}
+                        onChange={() => toggleAudiovisualItem(item)}
+                        style={{ width: "16px", height: "16px", accentColor: "#1E3A8A", cursor: "pointer" }}
+                      />
+                      {item}
+                    </label>
+                  ))}
+                </div>
+                {audiovisualItems.includes("Otros") && (
+                  <div style={{ marginTop: "0.75rem" }}>
+                    <label style={{ display: "block", fontWeight: 600, fontSize: "0.85rem", color: "#334155", marginBottom: "0.35rem" }}>
+                      Especifique el apoyo o equipo requerido:
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={audiovisualItems.includes(item)}
-                      onChange={() => toggleAudiovisualItem(item)}
-                      style={{ width: "16px", height: "16px", accentColor: "#1E3A8A", cursor: "pointer" }}
+                      type="text"
+                      style={{ width: "100%", maxWidth: "450px", padding: "0.5rem 0.75rem", border: "1px solid #CBD5E1", borderRadius: "6px", fontSize: "0.85rem", outline: "none", transition: "border-color 0.2s" }}
+                      placeholder="Ej. Proyector extra, cable HDMI de 10m..."
+                      value={audiovisualesOtrosTexto}
+                      onChange={(e) => setAudiovisualesOtrosTexto(e.target.value)}
                     />
-                    {item}
-                  </label>
-                ))}
-              </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

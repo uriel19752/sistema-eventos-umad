@@ -3,6 +3,8 @@ export interface FiltrosEstadisticas {
   institucion?: string;
   fechaInicio?: string;
   fechaFin?: string;
+  usuarioId?: number;
+  rol?: 'ADMIN' | 'SOLICITANTE';
 }
 
 export interface EstadisticasPorEntidad {

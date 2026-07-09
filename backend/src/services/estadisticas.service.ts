@@ -22,6 +22,13 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
     baseWhere.institucion = { nombre: filtros.institucion };
   }
 
+  // ── FILTRO POR ROL ──
+  const esAdmin = filtros?.rol === 'ADMIN';
+  const solicitudWhereEncuesta: Record<string, unknown> = {
+    ...baseWhere,
+    ...(!esAdmin && filtros?.usuarioId ? { usuarioId: filtros.usuarioId } : {}),
+  };
+
   /*
    * ── 1. CONTADORES POR ESTADO ──
    *
@@ -160,7 +167,7 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
     `,
 
     prisma.encuestaSatisfaccion.aggregate({
-      where: { solicitud: baseWhere },
+      where: { solicitud: solicitudWhereEncuesta },
       _avg: {
         puntualidad: true,
         calidadTecnica: true,
@@ -338,7 +345,7 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
   // ── 5. CSAT: DISTRIBUCIÓN DE ESTRELLAS ──
   const distribucionRaw = await prisma.encuestaSatisfaccion.groupBy({
     by: ['satisfaccionGral'],
-    where: { solicitud: baseWhere },
+    where: { solicitud: solicitudWhereEncuesta },
     _count: true,
   });
 
@@ -372,8 +379,13 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
     prevWhere.institucion = { nombre: filtros.institucion };
   }
 
+  const prevSolicitudWhereEncuesta: Record<string, unknown> = {
+    ...prevWhere,
+    ...(!esAdmin && filtros?.usuarioId ? { usuarioId: filtros.usuarioId } : {}),
+  };
+
   const prevPromedios = await prisma.encuestaSatisfaccion.aggregate({
-    where: { solicitud: prevWhere },
+    where: { solicitud: prevSolicitudWhereEncuesta },
     _avg: {
       puntualidad: true,
       calidadTecnica: true,

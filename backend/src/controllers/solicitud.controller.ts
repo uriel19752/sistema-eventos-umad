@@ -5,13 +5,14 @@ import type { ActualizarEstadoDTO } from '../dto/actualizarEstado.dto.js'
 import type { EditarSolicitudDTO } from '../dto/editarSolicitud.dto.js'
 import type { UsuarioAuth } from '../services/solicitud.service.js'
 import prisma from '../config/db.js'
-import { enviarCorreoModificacion } from '../services/mailService.js'
+import { enviarCorreoModificacion, enviarNotificacionProveedor } from '../services/mailService.js'
 
 function getUsuario(req: Request): UsuarioAuth {
   if (!req.usuario) {
     throw Object.assign(new Error('Usuario no autenticado'), { statusCode: 401 })
   }
-  return { id: req.usuario.id, rol: req.usuario.rol }
+  console.log("[AUTH] Email del usuario autenticado:", req.usuario.correo);
+  return { id: req.usuario.id, email: req.usuario.correo, rol: req.usuario.rol }
 }
 
 export const crearSolicitud = async (req: Request, res: Response) => {
@@ -156,7 +157,7 @@ export async function editarSolicitud(req: Request, res: Response): Promise<void
 
     const result = await solicitudService.editarSolicitud(id, data, usuario)
 
-    if (usuario.rol === 'USER') {
+    if (usuario.rol === 'SOLICITANTE') {
       await enviarCorreoModificacion({
         solicitudId: result.id,
         folio: result.folio,
@@ -168,10 +169,10 @@ export async function editarSolicitud(req: Request, res: Response): Promise<void
       })
     } else if (usuario.rol === 'ADMIN' && solicitudActual?.estado === 'Aprobado') {
       const docente = solicitudActual.usuarioId
-        ? await prisma.usuario.findUnique({ where: { id: solicitudActual.usuarioId }, select: { correo: true } })
+        ? await prisma.usuario.findUnique({ where: { id: solicitudActual.usuarioId }, select: { email: true } })
         : null
 
-      if (docente?.correo) {
+      if (docente?.email) {
         await enviarCorreoModificacion({
           solicitudId: result.id,
           folio: result.folio,
@@ -180,7 +181,7 @@ export async function editarSolicitud(req: Request, res: Response): Promise<void
           horaInicio: result.horaInicio?.toISOString().split('T')[1]?.substring(0, 5) ?? '',
           responsableNombre: result.responsableNombre,
           editadoPor: 'admin',
-          emailDocente: docente.correo,
+          emailDocente: docente.email,
         })
       }
     }
@@ -191,5 +192,64 @@ export async function editarSolicitud(req: Request, res: Response): Promise<void
     const message = statusCode === 500 ? 'Error interno del servidor' : error.message
     if (statusCode === 500) console.error('Error al editar solicitud:', error)
     res.status(statusCode).json({ error: message })
+  }
+}
+
+export async function asignarProveedores(req: Request, res: Response): Promise<void> {
+  try {
+    const usuario = getUsuario(req)
+    if (usuario.rol !== 'ADMIN') {
+      res.status(403).json({ error: 'Solo administradores pueden asignar proveedores' })
+      return
+    }
+    const id = Number(req.params.id)
+    const { proveedorIds } = req.body
+
+    const solicitud = await prisma.solicitudEvento.findUnique({ where: { id } })
+    if (!solicitud) {
+      res.status(404).json({ error: 'Solicitud no encontrada' })
+      return
+    }
+
+    const proveedoresAsignados = await solicitudService.asignarProveedores(id, proveedorIds ?? [])
+
+    const fechaStr = solicitud.fechaEvento instanceof Date
+      ? solicitud.fechaEvento.toISOString()
+      : String(solicitud.fechaEvento ?? '')
+    const fmtFecha = fechaStr.split('T')[0] ?? ''
+
+    const fmtHoraInicio = solicitud.horaInicio instanceof Date
+      ? `${String(solicitud.horaInicio.getUTCHours()).padStart(2, '0')}:${String(solicitud.horaInicio.getUTCMinutes()).padStart(2, '0')}`
+      : String(solicitud.horaInicio ?? '').slice(0, 5)
+
+    const fmtHoraFin = solicitud.horaFin instanceof Date
+      ? `${String(solicitud.horaFin.getUTCHours()).padStart(2, '0')}:${String(solicitud.horaFin.getUTCMinutes()).padStart(2, '0')}`
+      : String(solicitud.horaFin ?? '').slice(0, 5)
+
+    const eventoBase = {
+      folio: solicitud.folio,
+      nombreEvento: solicitud.nombreEvento,
+      fechaEvento: fmtFecha,
+      horaInicio: fmtHoraInicio,
+      horaFin: fmtHoraFin,
+      lugar: solicitud.lugarEspecifico ?? '',
+      responsable: solicitud.responsableNombre,
+      contacto: solicitud.contacto ?? '',
+    }
+
+    for (const ap of proveedoresAsignados) {
+      if (ap.proveedor.email) {
+        enviarNotificacionProveedor('asignacion', {
+          proveedorNombre: ap.proveedor.nombre,
+          proveedorEmail: ap.proveedor.email,
+          ...eventoBase,
+        }).catch((e) => console.error(`[MAIL] Error al enviar asignación a ${ap.proveedor.email}:`, e))
+      }
+    }
+
+    res.json(proveedoresAsignados)
+  } catch (error: any) {
+    console.error('Error al asignar proveedores:', error)
+    res.status(500).json({ error: 'Error interno del servidor' })
   }
 }

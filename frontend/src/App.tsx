@@ -8,12 +8,13 @@ import Evaluar from './pages/Evaluar'
 import CancelarSolicitudView from './pages/CancelarSolicitudView'
 import EstadisticasView from './pages/EstadisticasView'
 import CalendarioView from './pages/CalendarioView'
+import Proveedores from './pages/Proveedores'
 import LogoTigreTrack from './assets/logos/LogoTigreTrack'
 import { COLORS } from './theme/colors'
 import NotificationBell from './components/NotificationBell'
 import ErrorBoundary from './components/ErrorBoundary'
 
-type Vista = 'dashboard' | 'nueva' | 'estadisticas' | 'calendario'
+type Vista = 'dashboard' | 'nueva' | 'estadisticas' | 'calendario' | 'proveedores'
 
 function AppContent() {
   const [usuario, setUsuario] = useState<{ id: number; correo: string; rol: string; token: string } | null>(null)
@@ -129,10 +130,33 @@ function AppContent() {
           )
         })}
 
+        {usuario.rol === 'ADMIN' && (
+          <button
+            aria-label="Proveedores"
+            aria-current={vistaActual === 'proveedores' ? 'page' : undefined}
+            style={vistaActual === 'proveedores' ? estiloBtnActivo : estiloBtnInactivo}
+            onClick={() => { setVistaActual('proveedores'); navigate('/proveedores'); }}
+            onMouseEnter={(e) => {
+              if (vistaActual !== 'proveedores') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.14)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (vistaActual !== 'proveedores') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.07)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
+              }
+            }}
+          >
+            Proveedores
+          </button>
+        )}
+
         <div style={{ flex: 1 }} />
 
         <NotificationBell />
-
+        
         {/* Salir */}
         <button
           aria-label="Cerrar sesión"
@@ -163,6 +187,7 @@ function AppContent() {
         {vistaActual === 'nueva' && <NuevaSolicitud />}
         {vistaActual === 'estadisticas' && <ErrorBoundary><EstadisticasView onCambioInstitucion={setInstitucionActual} /></ErrorBoundary>}
         {vistaActual === 'calendario' && <CalendarioView userRol={usuario.rol} />}
+        {vistaActual === 'proveedores' && <Proveedores />}
       </main>
     </div>
   )
@@ -180,6 +205,7 @@ function App() {
         <Route path="/nueva" element={<AppContent />} />
         <Route path="/estadisticas" element={<AppContent />} />
         <Route path="/calendario" element={<AppContent />} />
+        <Route path="/proveedores" element={<AppContent />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

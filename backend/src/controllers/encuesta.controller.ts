@@ -149,6 +149,11 @@ export async function obtenerResumenGlobal(req: Request, res: Response): Promise
   try {
     const solicitudWhere = construirFiltroSolicitud(req);
 
+    const esAdmin = req.usuario?.rol === 'ADMIN';
+    if (!esAdmin && req.usuario?.id) {
+      solicitudWhere.usuarioId = req.usuario.id;
+    }
+
     const encuestas = await prisma.encuestaSatisfaccion.findMany({
       ...(Object.keys(solicitudWhere).length > 0
         ? { where: { solicitud: solicitudWhere } }
@@ -195,6 +200,11 @@ export async function obtenerResumenGlobal(req: Request, res: Response): Promise
 export async function obtenerTodasEncuestas(req: Request, res: Response): Promise<void> {
   try {
     const solicitudWhere = construirFiltroSolicitud(req);
+
+    const esAdmin = req.usuario?.rol === 'ADMIN';
+    if (!esAdmin && req.usuario?.id) {
+      solicitudWhere.usuarioId = req.usuario.id;
+    }
 
     const encuestas = await prisma.encuestaSatisfaccion.findMany({
       ...(Object.keys(solicitudWhere).length > 0

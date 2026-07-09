@@ -6,7 +6,7 @@ dotenv.config();
 
 const Rol = {
   ADMIN: "ADMIN",
-  USER: "USER",
+  SOLICITANTE: "SOLICITANTE",
 } as const;
 
 async function main() {
@@ -36,14 +36,14 @@ async function main() {
   await prisma.usuario.createMany({
     data: [
       {
-        correo: "4ngel3duardofongestrada@gmail.com",
+        email: "4ngel3duardofongestrada@gmail.com",
         password: hashAdmin,
         rol: Rol.ADMIN,
       },
       {
-        correo: "josudcb.barca@gmail.com",
+        email: "josudcb.barca@gmail.com",
         password: hashUser,
-        rol: Rol.USER,
+        rol: Rol.SOLICITANTE,
       },
     ],
   });
@@ -68,6 +68,18 @@ async function main() {
   });
   const instImmMaternal = await prisma.institucion.create({
     data: { nombre: "IMM Maternal" },
+  });
+  const instIngenierias = await prisma.institucion.create({
+    data: { nombre: "Ingenierías" },
+  });
+  const instArte = await prisma.institucion.create({
+    data: { nombre: "Arte y Humanidades" },
+  });
+  const instNegocios = await prisma.institucion.create({
+    data: { nombre: "Negocios, Comercio y Derecho" },
+  });
+  const instCienciasSociales = await prisma.institucion.create({
+    data: { nombre: "Ciencias Sociales" },
   });
 
   // 5. Catalogo de planteles

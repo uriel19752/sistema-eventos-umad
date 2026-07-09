@@ -30,6 +30,7 @@ enum Estado {
 
 enum Rol {
   ADMIN
+  SOLICITANTE
   USER
 
   @@map("rol")
@@ -49,10 +50,14 @@ enum TipoMaterial {
 // ──────────────────────────────────────────────────────────────────────────────
 
 model Usuario {
-  id       Int    @id @default(autoincrement())
-  correo   String @unique @db.VarChar(255)
-  password String @db.VarChar(255)
-  rol      Rol    @default(USER)
+  id        Int      @id @default(autoincrement())
+  nombre    String?  @db.VarChar(255)
+  email     String   @unique @map("correo") @db.VarChar(255)
+  password  String?  @db.VarChar(255)
+  googleId  String?  @unique @map("google_id") @db.VarChar(255)
+  rol       Rol      @default(SOLICITANTE)
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp
 
   solicitudes   SolicitudEvento[]
   notificaciones Notificacion[]
