@@ -1,4 +1,5 @@
 import { useEffect, useState, startTransition } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import { Search, CheckCircle, Star, Layers, FileText, AlertTriangle, XCircle, Info, BarChart3, User, Calendar, X, Activity, Clock, ClipboardList } from 'lucide-react'
 import SolicitudCompletaModal from '../components/SolicitudCompletaModal'
@@ -83,6 +84,7 @@ const KPI_CARDS = [
 ] as const
 
 export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: string; onCambioInstitucion?: (inst: 'umad' | 'prepa' | 'imm' | 'sistema') => void }) {
+  const [searchParams] = useSearchParams()
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([])
   const [filtro, setFiltro] = useState<FiltroInstitucion>('')
   const [tabTemporal, setTabTemporal] = useState('todo')
@@ -166,6 +168,17 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
       onCambioInstitucion(mapa[filtro] ?? 'sistema')
     }
   }, [filtro, onCambioInstitucion])
+
+  useEffect(() => {
+    const solicitudIdParam = searchParams.get('solicitudId')
+    if (solicitudIdParam && solicitudes.length > 0) {
+      const id = Number(solicitudIdParam)
+      if (!isNaN(id) && solicitudes.some(s => s.id === id)) {
+        setSolicitudSeleccionada(id)
+        document.getElementById('panel-detalle')?.scrollIntoView({ behavior: 'smooth' })
+      }
+    }
+  }, [searchParams, solicitudes])
 
   useEffect(() => {
     if (toast) {
@@ -660,7 +673,7 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
 
       {/* ===== DETAIL PANEL ===== */}
       {solicitudSeleccionada !== null && (
-        <div style={{
+        <div id="panel-detalle" style={{
           background: '#FFFFFF',
           padding: '1.75rem',
           borderRadius: '16px',

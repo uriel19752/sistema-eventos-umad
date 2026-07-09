@@ -12,6 +12,8 @@ import {
   enviarNotificacionProveedor,
 } from "./mailService.js";
 import {
+  actualizarEventoSolicitud,
+  construirDescription,
   crearEventoSolicitud,
   eliminarEventoSolicitud,
 } from "./googleCalendarEvent.service.js";
@@ -20,7 +22,7 @@ import { crearNotificacion } from "./notificacion.service.js";
 const MS_IN_48_HOURS = 48 * 60 * 60 * 1000;
 
 function formatDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 function formatTime(d: Date): string {
   const hours = String(d.getUTCHours()).padStart(2, "0");
@@ -529,6 +531,9 @@ export async function actualizarEstado(
       materialSolicitado: {
         select: { tipoMaterial: true, descripcionOtro: true },
       },
+      usuario: {
+        select: { email: true },
+      },
     },
   });
 
@@ -546,6 +551,7 @@ export async function actualizarEstado(
       );
 
     if (solicitudActual.usuario?.email) {
+      const descripcionCompleta = construirDescription(actualizada)
       enviarCorreoAprobacion({
         destinatario: solicitudActual.usuario.email,
         solicitudId: solicitudActual.id,
@@ -553,7 +559,10 @@ export async function actualizarEstado(
         nombreEvento: solicitudActual.nombreEvento,
         fechaEvento: formatDate(solicitudActual.fechaEvento),
         horaInicio: formatTime(solicitudActual.horaInicio),
+        horaFin: formatTime(solicitudActual.horaFin),
+        lugarEspecifico: solicitudActual.lugarEspecifico ?? '',
         responsableNombre: solicitudActual.responsableNombre,
+        descripcionCompleta,
       }).catch((e) =>
         console.error("[MAIL] Error enviando correo de aprobación", e),
       );
@@ -588,7 +597,12 @@ export async function editarSolicitud(
 
   const solicitudActual = await prisma.solicitudEvento.findUnique({
     where: { id },
-    include: { materialSolicitado: true },
+    include: {
+      materialSolicitado: true,
+      usuario: {
+        select: { email: true },
+      },
+    },
   });
 
   if (!solicitudActual) {
@@ -714,6 +728,11 @@ export async function editarSolicitud(
       materialSolicitado: true,
     },
   });
+
+  if (solicitudActual.estado === "Aprobado" && solicitudActual.googleEventId) {
+    actualizarEventoSolicitud(solicitudActual.googleEventId, solicitudActualizada)
+      .catch((e) => console.error("[Google Calendar] Error actualizando evento en edicion:", e))
+  }
 
   if (usuario.rol === "ADMIN") {
     if (solicitudActual.usuarioId) {

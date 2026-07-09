@@ -34,9 +34,33 @@ function AppContent() {
     navigate('/login')
   }
 
+  function getRedirectUrl(): string | null {
+    const queryParams = new URLSearchParams(window.location.search)
+    let targetUrl = queryParams.get('redirect')
+    if (targetUrl && targetUrl.includes('?')) {
+      const fullSearch = window.location.search
+      const match = fullSearch.match(/[?&]redirect=(.+)$/)
+      if (match) {
+        targetUrl = decodeURIComponent(match[1])
+      }
+    }
+    return targetUrl
+  }
+
   function handleLogin(user: { id: number; correo: string; rol: string; token: string }) {
     setUsuario(user)
-    navigate('/dashboard')
+    const redirectTo = getRedirectUrl()
+    if (redirectTo) {
+      navigate(redirectTo, { replace: true })
+    } else {
+      const searchParams = new URLSearchParams(window.location.search)
+      const solicitudId = searchParams.get('solicitudId')
+      if (solicitudId) {
+        navigate(`/dashboard?solicitudId=${solicitudId}`, { replace: true })
+      } else {
+        navigate('/dashboard')
+      }
+    }
   }
 
   if (!usuario) {
@@ -193,13 +217,28 @@ function AppContent() {
   )
 }
 
+function DetalleRedirect() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    const search = window.location.search
+    const params = new URLSearchParams(search)
+    const id = params.get('id')
+    if (id) {
+      navigate(`/dashboard?solicitudId=${id}`, { replace: true })
+    } else {
+      navigate('/dashboard', { replace: true })
+    }
+  }, [navigate])
+  return null
+}
+
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/evaluar/:id" element={<Evaluar />} />
         <Route path="/solicitudes/cancelar" element={<CancelarSolicitudView />} />
-        <Route path="/solicitudes/detalle" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/solicitudes/detalle" element={<DetalleRedirect />} />
         <Route path="/login" element={<AppContent />} />
         <Route path="/dashboard" element={<AppContent />} />
         <Route path="/nueva" element={<AppContent />} />

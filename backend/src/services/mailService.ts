@@ -47,11 +47,12 @@ const transport = nodemailer.createTransport({
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
 function accionesSolicitudHtml(solicitudId: number): string {
+  const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
   return `
     <div style="margin-top:24px;padding-top:20px;border-top:1px solid #e2e8f0;">
       <p style="margin:0 0 14px;font-weight:700;color:#0f172a;font-size:14px;">Acciones de la Solicitud</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <a href="${FRONTEND_URL}/solicitudes/detalle?id=${solicitudId}" style="display:inline-block;background:#1e3a8a;color:#ffffff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;">Ver Solicitud Completa</a>
+        <a href="${FRONTEND_URL}/dashboard?solicitudId=${solicitudId}" style="display:inline-block;background:#1e3a8a;color:#ffffff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;">Ver Solicitud Completa</a>
         <a href="${FRONTEND_URL}/solicitudes/cancelar?id=${solicitudId}" style="display:inline-block;background:#dc2626;color:#ffffff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;">Cancelar Solicitud</a>
       </div>
     </div>
@@ -162,18 +163,64 @@ interface DatosNotificacionEstado {
   nombreEvento: string
   fechaEvento: string
   horaInicio: string
+  horaFin?: string
+  lugarEspecifico?: string
   responsableNombre: string
   motivo?: string
+  descripcionCompleta?: string
 }
 
 export async function enviarCorreoAprobacion(datos: DatosNotificacionEstado): Promise<void> {
   console.log('[MAIL] Enviando correo de aprobación')
   console.log('[MAIL] Email destinatario (aprobación):', datos.destinatario);
+  console.log('[DEBUG MAIL] Valores recibidos para ICS:', JSON.stringify({ fechaEvento: datos.fechaEvento, horaInicio: datos.horaInicio, horaFin: datos.horaFin }));
 
   if (!datos.destinatario) {
     console.error('[MAIL] Error: destinatario indefinido — no se puede enviar correo de aprobación');
     return;
   }
+
+  const fechaRaw = typeof datos.fechaEvento === 'string' ? datos.fechaEvento : new Date(datos.fechaEvento).toISOString();
+  const [ano = '0000', mes = '00', dia = '00'] = fechaRaw.split('T')[0]?.split('-') ?? [];
+
+  const extraerHHMM = (horaVal: any): { hh: string; mm: string } => {
+    if (!horaVal) return { hh: "00", mm: "00" };
+    const s = horaVal instanceof Date ? horaVal.toISOString() : String(horaVal);
+    const match = s.match(/(?:T|\s|^)(\d{2}):(\d{2})/);
+    return match ? { hh: match[1] ?? "00", mm: match[2] ?? "00" } : { hh: "00", mm: "00" };
+  };
+
+  const inicio = extraerHHMM(datos.horaInicio);
+  const fin = extraerHHMM(datos.horaFin);
+
+  const fechaStartLocal = new Date(`${ano}-${mes}-${dia}T${inicio.hh}:${inicio.mm}:00-06:00`);
+  const fechaEndLocal = new Date(`${ano}-${mes}-${dia}T${fin.hh}:${fin.mm}:00-06:00`);
+
+  const dtStartStr = fechaStartLocal.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const dtEndStr = fechaEndLocal.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+  console.log(`[DEBUG ICS] Fecha original: ${ano}-${mes}-${dia}. Generados para iCal UTC: ${dtStartStr} y ${dtEndStr}`);
+
+  const ubicacion = datos.lugarEspecifico || 'Plantel UMAD'
+
+  const rawIcal = `BEGIN:VCALENDAR
+VERSION:2.0
+CALSCALE:GREGORIAN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:solicitud_${datos.solicitudId}_${datos.folio}
+DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z
+DTSTART:${dtStartStr}
+DTEND:${dtEndStr}
+SUMMARY:Cobertura: ${datos.nombreEvento}
+DESCRIPTION:${datos.descripcionCompleta ? datos.descripcionCompleta.replace(/\n/g, '\\n') : ''}
+LOCATION:${ubicacion}
+ORGANIZER;CN=TigreTrack:mailto:${process.env.MAIL_USER}
+ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=Solicitante:mailto:${datos.destinatario}
+END:VEVENT
+END:VCALENDAR`
+
+  const icalContent = rawIcal.split('\n').map(line => line.trim()).filter(line => line.length > 0).join('\r\n')
 
   const cuerpo = `
     <p>Estimado(a) responsable,</p>
@@ -183,11 +230,12 @@ export async function enviarCorreoAprobacion(datos: DatosNotificacionEstado): Pr
     <p><strong>Folio:</strong> ${datos.folio}</p>
     <p><strong>Fecha del evento:</strong> ${datos.fechaEvento}</p>
     <p><strong>Hora de inicio:</strong> ${datos.horaInicio}</p>
+    <p><strong>Ubicación:</strong> ${datos.lugarEspecifico || 'Plantel UMAD'}</p>
     <p><strong>Responsable:</strong> ${datos.responsableNombre}</p>
-    <p>El evento ha sido agregado al calendario institucional para su seguimiento.</p>
+    <p>El evento ha sido agregado al calendario institucional para su seguimiento. Encontrará adjunta una invitación de calendario (.ics) que puede agregar a su calendario personal.</p>
 
     <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:18px;margin:20px 0;text-align:center;">
-      <p style="margin:0 0 6px;font-weight:700;color:#92400e;font-size:15px;">📋 Evaluación del servicio</p>
+      <p style="margin:0 0 6px;font-weight:700;color:#92400e;font-size:15px;">Evaluación del servicio</p>
       <p style="margin:0 0 14px;color:#78350f;font-size:13px;">Lo invitamos a evaluar la calidad del servicio recibido:</p>
       <a href="${FRONTEND_URL}/evaluar/${datos.folio}" style="display:inline-block;background:#f59e0b;color:#ffffff;padding:10px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;">Evaluar servicio</a>
     </div>
@@ -203,9 +251,14 @@ export async function enviarCorreoAprobacion(datos: DatosNotificacionEstado): Pr
     to: datos.destinatario,
     subject: `Solicitud aprobada - ${datos.folio}`,
     html,
+    icalEvent: {
+      filename: 'invitacion-evento.ics',
+      method: 'REQUEST',
+      content: icalContent,
+    },
   })
 
-  console.log('[MAIL] Correo de aprobación enviado')
+  console.log('[MAIL] Correo de aprobación enviado con invitacion .ics adjunta')
 }
 
 interface DatosRecordatorio {

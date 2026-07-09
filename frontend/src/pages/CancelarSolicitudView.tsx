@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
+function getToken(): string | null {
+  return localStorage.getItem('token')
+}
+
 export default function CancelarSolicitudView() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -11,13 +15,23 @@ export default function CancelarSolicitudView() {
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
   const [done, setDone] = useState(false)
+  const [authed, setAuthed] = useState<boolean | null>(null)
   const [error, setError] = useState('')
   const [motivo, setMotivo] = useState('')
 
   useEffect(() => {
-    if (!id) {
+    const token = getToken()
+    if (!token) {
+      setAuthed(false)
+      setLoading(false)
       return
     }
+    setAuthed(true)
+
+    if (!id) return
+
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+
     axios
       .get(`/api/solicitudes/${id}`)
       .then((res) => setNombreEvento(res.data.nombreEvento))
@@ -29,6 +43,12 @@ export default function CancelarSolicitudView() {
     if (!id) return
     setCancelling(true)
     setError('')
+
+    const token = getToken()
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    }
+
     try {
       await axios.patch(`/api/solicitudes/${id}/estado`, {
         estado: 'Cancelada',
@@ -36,8 +56,13 @@ export default function CancelarSolicitudView() {
       })
       setDone(true)
     } catch (err) {
-      const errorMsg = axios.isAxiosError(err) ? err.response?.data?.error || 'Error al cancelar la solicitud.' : 'Error al cancelar la solicitud.'
-      setError(errorMsg)
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        setError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.')
+        setAuthed(false)
+      } else {
+        const errorMsg = axios.isAxiosError(err) ? err.response?.data?.error || 'Error al cancelar la solicitud.' : 'Error al cancelar la solicitud.'
+        setError(errorMsg)
+      }
     } finally {
       setCancelling(false)
     }
@@ -47,6 +72,32 @@ export default function CancelarSolicitudView() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}>
         <p style={{ color: '#dc2626' }}>No se proporcionó un ID de solicitud.</p>
+      </div>
+    )
+  }
+
+  if (authed === false) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9', padding: '20px' }}>
+        <div style={{ maxWidth: '480px', width: '100%', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 24px rgba(0,0,0,0.1)', padding: '32px', textAlign: 'center' }}>
+          <div style={{ width: '64px', height: '64px', background: '#fef2f2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+          </div>
+          <h1 style={{ margin: '0 0 12px', fontSize: '22px', fontWeight: 700, color: '#0f172a' }}>Inicia sesión para continuar</h1>
+          <p style={{ color: '#475569', margin: '0 0 24px', fontSize: '14px', lineHeight: 1.5 }}>
+            Para cancelar esta solicitud, primero debes iniciar sesión en TigreTrack.
+          </p>
+          <button
+            onClick={() => navigate(`/login?redirect=/solicitudes/cancelar?id=${id}`)}
+            style={{ background: '#1e3a8a', color: '#fff', border: 'none', padding: '10px 24px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', fontSize: '14px' }}
+          >
+            Ir a Iniciar Sesión
+          </button>
+        </div>
       </div>
     )
   }

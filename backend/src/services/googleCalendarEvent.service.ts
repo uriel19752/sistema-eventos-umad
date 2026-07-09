@@ -1,14 +1,5 @@
 import { getCalendarClient } from './googleCalendar.service.js'
 
-/**
- * Elimina un evento de Google Calendar asociado a una solicitud cancelada.
- *
- * - Se ejecuta después de que la cancelación ya fue persistida en BD.
- * - Nunca lanza excepción; los errores se registran en consola.
- * - Útil también como base para futuras ampliaciones:
- *   → Actualización de eventos (editar fecha/hora/lugar).
- *   → Reprogramación (eliminar + crear con nuevos datos).
- */
 export async function eliminarEventoSolicitud(googleEventId: string | null | undefined): Promise<void> {
   if (!googleEventId) {
     console.log('[Google Calendar] Evento omitido: la solicitud no posee googleEventId')
@@ -28,13 +19,15 @@ export async function eliminarEventoSolicitud(googleEventId: string | null | und
 
     console.log('[Google Calendar] Evento eliminado correctamente')
   } catch (error: any) {
-    // Si el evento ya no existe en Calendar, no es un error crítico
     if (error?.response?.status === 404) {
       console.log('[Google Calendar] Evento no encontrado en Calendar')
       return
     }
 
-    console.error('[Google Calendar] Error eliminando evento:', error?.message ?? error)
+    console.error('[Google Calendar] Error eliminando evento:', error?.response?.data?.error?.message ?? error?.message ?? error)
+    if (error?.response?.data?.error) {
+      console.error('[Google Calendar] Detalle completo del error:', JSON.stringify(error.response.data.error, null, 2))
+    }
   }
 }
 
@@ -62,15 +55,20 @@ interface SolicitudData {
   observaciones: string | null
   googleEventId: string | null
   materialSolicitado?: MaterialInfo[]
-}
+  }
 
 function combinarFechaHora(fecha: Date, hora: Date): string {
-  const y = fecha.getUTCFullYear()
-  const m = String(fecha.getUTCMonth() + 1).padStart(2, '0')
-  const d = String(fecha.getUTCDate()).padStart(2, '0')
-  const hh = String(hora.getUTCHours()).padStart(2, '0')
-  const mm = String(hora.getUTCMinutes()).padStart(2, '0')
-  return `${y}-${m}-${d}T${hh}:${mm}:00`
+  const y = fecha.getUTCFullYear();
+  const m = String(fecha.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(fecha.getUTCDate()).padStart(2, '0');
+
+  const stringHora = hora instanceof Date ? hora.toISOString() : String(hora);
+  const match = stringHora.match(/(?:T|\s|^)(\d{2}):(\d{2})/);
+  const hh = match ? match[1] : '00';
+  const mm = match ? match[2] : '00';
+
+  const localDate = new Date(`${y}-${m}-${d}T${hh}:${mm}:00-06:00`);
+  return localDate.toISOString();
 }
 
 function formatearFecha(fecha: Date): string {
@@ -86,6 +84,52 @@ function formatearHora(hora: Date): string {
   return `${hh}:${mm}`
 }
 
+export function construirDescription(solicitud: SolicitudData): string {
+  const materiales = solicitud.materialSolicitado ?? []
+  const foto = materiales.some(m => m.tipoMaterial === 'Fotografia') ? '✅ SÍ' : '❌ NO'
+  const nota = materiales.some(m => m.tipoMaterial === 'Nota_Web') ? '✅ SÍ' : '❌ NO'
+  const banners = materiales.some(m => m.tipoMaterial === 'Banner') ? '✅ SÍ' : '❌ NO'
+  const otroMat = materiales.find(m => m.tipoMaterial === 'Otro')
+
+  const horaMontajeStr = solicitud.horaMontaje ? formatearHora(solicitud.horaMontaje) : 'No especificada'
+  const horaInicioStr = formatearHora(solicitud.horaInicio)
+  const horaFinStr = formatearHora(solicitud.horaFin)
+
+  return [
+    '🐾 TIGRETRACK • COBERTURA INFORMATIVA',
+    '',
+    '📝 DESCRIPCIÓN DEL EVENTO',
+    solicitud.descripcion || 'No especificada',
+    '',
+    '🎯 OBJETIVO DE COMUNICACIÓN',
+    solicitud.objetivoCobertura || 'No especificado',
+    '',
+    '📍 UBICACIÓN DE COBERTURA',
+    `• 🏛️ Plantel: ${solicitud.lugarEspecifico || 'UMAD'}`,
+    `• 📍 Espacio Específico: ${solicitud.ubicacion || 'No especificado'}`,
+    '',
+    '⏰ LOGÍSTICA DE TIEMPOS',
+    `• 🛠️ Hora de Montaje: ${horaMontajeStr}`,
+    `• 🚀 Duración del Evento: ${horaInicioStr} a ${horaFinStr}`,
+    '',
+    '👥 RESPONSABLES',
+    `• 👤 Organiza: ${solicitud.responsableNombre || 'No especificado'}`,
+    `• 🏢 Área/Depto: ${solicitud.departamentoSolicitante || 'No especificado'}`,
+    `• 📱 WhatsApp Contacto: ${solicitud.contacto || 'No especificado'}`,
+    `• 🎓 Autoridades Asistentes: ${solicitud.autoridadesAsistentes || 'Ninguna'}`,
+    '',
+    '🛠️ ENTREGABLES COMPROMETIDOS',
+    `• 📷 Servicio de Fotografía: ${foto}`,
+    `• ✍️ Nota Informativa Web: ${nota}`,
+    `• 🎨 Diseño de Banners: ${banners}`,
+    `• ➕ Otro requerimiento: ${otroMat?.descripcionOtro || 'Ninguno'}`,
+    '',
+    '____________________________________________',
+    'Generated automatically by TigreTrack · Sistema Madero',
+    '🔗 Panel de solicitudes: http://localhost:5173/dashboard',
+  ].join('\n')
+}
+
 export async function crearEventoSolicitud(solicitud: SolicitudData): Promise<{ id: string; htmlLink: string } | null> {
   if (solicitud.googleEventId) {
     console.log(`[Google Calendar] Evento omitido: la solicitud ${solicitud.folio} ya tiene evento (${solicitud.googleEventId})`)
@@ -95,49 +139,18 @@ export async function crearEventoSolicitud(solicitud: SolicitudData): Promise<{ 
   const calendar = getCalendarClient()
   const calendarId = process.env.GOOGLE_CALENDAR_ID ?? ''
 
-  const materiales = solicitud.materialSolicitado ?? []
-  const tieneFoto = materiales.some(m => m.tipoMaterial === 'Fotografia')
-  const tieneNota = materiales.some(m => m.tipoMaterial === 'Nota_Web')
-  const tieneBanner = materiales.some(m => m.tipoMaterial === 'Banner')
-  const otroMat = materiales.find(m => m.tipoMaterial === 'Otro')
+  const description = construirDescription(solicitud)
 
-  const montajeHora = solicitud.horaMontaje
-    ? formatearHora(solicitud.horaMontaje)
-    : 'No requiere'
+  console.log("[Google Calendar] Datos enviados a Google:", JSON.stringify({
+    calendarId,
+    summary: `Cobertura: ${solicitud.nombreEvento}`,
+    location: solicitud.ubicacion,
+    start: combinarFechaHora(solicitud.fechaEvento, solicitud.horaInicio),
+    end: combinarFechaHora(solicitud.fechaEvento, solicitud.horaFin),
+  }, null, 2))
 
-  const description = [
-    '🐾 TIGRETRACK • COBERTURA INFORMATIVA',
-    '',
-    `📝 DESCRIPCIÓN DEL EVENTO`,
-    solicitud.descripcion ?? 'Sin descripción',
-    '',
-    `🎯 OBJETIVO DE COMUNICACIÓN`,
-    solicitud.objetivoCobertura ?? 'No especificado',
-    '',
-    `📍 UBICACIÓN DE COBERTURA`,
-    `• 🏛️ Plantel: ${solicitud.lugarEspecifico ?? 'No especificado'}`,
-    `• 📍 Espacio Específico: ${solicitud.ubicacion ?? 'No especificado'}`,
-    '',
-    `⏰ LOGÍSTICA DE TIEMPOS`,
-    `• 🛠️ Hora de Montaje: ${montajeHora}`,
-    `• 🚀 Duración del Evento: ${formatearHora(solicitud.horaInicio)} a ${formatearHora(solicitud.horaFin)}`,
-    '',
-    `👥 RESPONSABLES`,
-    `• 👤 Organiza: ${solicitud.responsableNombre ?? 'No especificado'}`,
-    `• 🏢 Área/Depto: ${solicitud.departamentoSolicitante ?? 'No especificado'}`,
-    `• 📱 WhatsApp Contacto: ${solicitud.contacto ?? 'No especificado'}`,
-    `• 🎓 Autoridades Asistentes: ${solicitud.autoridadesAsistentes ?? 'No especificado'}`,
-    '',
-    `🛠️ ENTREGABLES COMPROMETIDOS`,
-    `• 📷 Servicio de Fotografía: ${tieneFoto ? '✅ SÍ' : '❌ NO'}`,
-    `• ✍️ Nota Informativa Web: ${tieneNota ? '✅ SÍ' : '❌ NO'}`,
-    `• 🎨 Diseño de Banners: ${tieneBanner ? '✅ SÍ' : '❌ NO'}`,
-    `• ➕ Otro requerimiento: ${otroMat?.descripcionOtro ?? 'Ninguno'}`,
-    '',
-    `____________________________________________`,
-    `Generated automatically by TigreTrack · Sistema Madero`,
-    `🔗 Panel de solicitudes: http://localhost:5173/dashboard`,
-  ].join('\n')
+  const ymdAdmin = new Date(solicitud.fechaEvento).toISOString().split('T')[0] ?? '0000-00-00';
+  const extraerHoraAdmin = (h: any) => h && String(h).includes('T') ? (String(h).split('T')[1]?.substring(0, 5) ?? '00:00') : String(h).substring(0, 5);
 
   try {
     const event = await calendar.events.insert({
@@ -148,11 +161,9 @@ export async function crearEventoSolicitud(solicitud: SolicitudData): Promise<{ 
         description,
         start: {
           dateTime: combinarFechaHora(solicitud.fechaEvento, solicitud.horaInicio),
-          timeZone: 'America/Mexico_City',
         },
         end: {
           dateTime: combinarFechaHora(solicitud.fechaEvento, solicitud.horaFin),
-          timeZone: 'America/Mexico_City',
         },
       },
     })
@@ -164,8 +175,52 @@ export async function crearEventoSolicitud(solicitud: SolicitudData): Promise<{ 
       return { id: eventId, htmlLink }
     }
     return null
-  } catch (error) {
-    console.error('[Google Calendar] Error creando evento:', error)
+  } catch (error: any) {
+    console.error('[Google Calendar] Error creando evento:', error?.response?.data?.error?.message ?? error?.message ?? error)
+    if (error?.response?.data?.error) {
+      console.error('[Google Calendar] Detalle completo del error:', JSON.stringify(error.response.data.error, null, 2))
+    }
     return null
+  }
+}
+
+export async function actualizarEventoSolicitud(googleEventId: string, solicitud: SolicitudData): Promise<void> {
+  const calendar = getCalendarClient()
+  const calendarId = process.env.GOOGLE_CALENDAR_ID ?? ''
+
+  const description = construirDescription(solicitud)
+
+  console.log("[Google Calendar] Datos enviados a PATCH Google:", JSON.stringify({
+    calendarId,
+    eventId: googleEventId,
+    summary: `Cobertura: ${solicitud.nombreEvento}`,
+    location: solicitud.ubicacion,
+    start: combinarFechaHora(solicitud.fechaEvento, solicitud.horaInicio),
+    end: combinarFechaHora(solicitud.fechaEvento, solicitud.horaFin),
+  }, null, 2))
+
+  try {
+    await calendar.events.patch({
+      calendarId,
+      eventId: googleEventId,
+      requestBody: {
+        summary: `Cobertura: ${solicitud.nombreEvento}`,
+        location: solicitud.ubicacion ?? '',
+        description,
+        start: {
+          dateTime: combinarFechaHora(solicitud.fechaEvento, solicitud.horaInicio),
+        },
+        end: {
+          dateTime: combinarFechaHora(solicitud.fechaEvento, solicitud.horaFin),
+        },
+      },
+    })
+
+    console.log(`[Google Calendar] Evento actualizado: ${solicitud.nombreEvento} (ID: ${googleEventId})`)
+  } catch (error: any) {
+    console.error('[Google Calendar] Error actualizando evento:', error?.response?.data?.error?.message ?? error?.message ?? error)
+    if (error?.response?.data?.error) {
+      console.error('[Google Calendar] Detalle completo del error:', JSON.stringify(error.response.data.error, null, 2))
+    }
   }
 }
