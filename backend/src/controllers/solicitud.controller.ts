@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express'
+import PDFDocument from 'pdfkit'
 import * as solicitudService from '../services/solicitud.service.js'
 import type { CrearSolicitudDTO } from '../dto/crearSolicitud.dto.js'
 import type { ActualizarEstadoDTO } from '../dto/actualizarEstado.dto.js'
@@ -211,39 +212,43 @@ export async function asignarProveedores(req: Request, res: Response): Promise<v
       return
     }
 
+    // Solo notificamos la primera vez que se asignan proveedores.
+    // Las modificaciones posteriores son internas y no generan correos.
+    const existingCount = await prisma.asignacionProveedor.count({
+      where: { solicitudId: id },
+    })
+
     const proveedoresAsignados = await solicitudService.asignarProveedores(id, proveedorIds ?? [])
 
-    const fechaStr = solicitud.fechaEvento instanceof Date
-      ? solicitud.fechaEvento.toISOString()
-      : String(solicitud.fechaEvento ?? '')
-    const fmtFecha = fechaStr.split('T')[0] ?? ''
+    if (existingCount === 0 && proveedorIds.length > 0) {
+      const fechaStr = solicitud.fechaEvento instanceof Date
+        ? solicitud.fechaEvento.toISOString()
+        : String(solicitud.fechaEvento ?? '')
+      const fmtFecha = fechaStr.split('T')[0] ?? ''
 
-    const fmtHoraInicio = solicitud.horaInicio instanceof Date
-      ? `${String(solicitud.horaInicio.getUTCHours()).padStart(2, '0')}:${String(solicitud.horaInicio.getUTCMinutes()).padStart(2, '0')}`
-      : String(solicitud.horaInicio ?? '').slice(0, 5)
+      const fmtHoraInicio = solicitud.horaInicio instanceof Date
+        ? `${String(solicitud.horaInicio.getUTCHours()).padStart(2, '0')}:${String(solicitud.horaInicio.getUTCMinutes()).padStart(2, '0')}`
+        : String(solicitud.horaInicio ?? '').slice(0, 5)
 
-    const fmtHoraFin = solicitud.horaFin instanceof Date
-      ? `${String(solicitud.horaFin.getUTCHours()).padStart(2, '0')}:${String(solicitud.horaFin.getUTCMinutes()).padStart(2, '0')}`
-      : String(solicitud.horaFin ?? '').slice(0, 5)
+      const fmtHoraFin = solicitud.horaFin instanceof Date
+        ? `${String(solicitud.horaFin.getUTCHours()).padStart(2, '0')}:${String(solicitud.horaFin.getUTCMinutes()).padStart(2, '0')}`
+        : String(solicitud.horaFin ?? '').slice(0, 5)
 
-    const eventoBase = {
-      folio: solicitud.folio,
-      nombreEvento: solicitud.nombreEvento,
-      fechaEvento: fmtFecha,
-      horaInicio: fmtHoraInicio,
-      horaFin: fmtHoraFin,
-      lugar: solicitud.lugarEspecifico ?? '',
-      responsable: solicitud.responsableNombre,
-      contacto: solicitud.contacto ?? '',
-    }
-
-    for (const ap of proveedoresAsignados) {
-      if (ap.proveedor.email) {
-        enviarNotificacionProveedor('asignacion', {
-          proveedorNombre: ap.proveedor.nombre,
-          proveedorEmail: ap.proveedor.email,
-          ...eventoBase,
-        }).catch((e) => console.error(`[MAIL] Error al enviar asignación a ${ap.proveedor.email}:`, e))
+      for (const ap of proveedoresAsignados) {
+        if (ap.proveedor.email) {
+          enviarNotificacionProveedor('asignacion', {
+            proveedorNombre: ap.proveedor.nombre,
+            proveedorEmail: ap.proveedor.email,
+            folio: solicitud.folio,
+            nombreEvento: solicitud.nombreEvento,
+            fechaEvento: fmtFecha,
+            horaInicio: fmtHoraInicio,
+            horaFin: fmtHoraFin,
+            lugar: solicitud.lugarEspecifico ?? '',
+            responsable: solicitud.responsableNombre,
+            contacto: solicitud.contacto ?? '',
+          }).catch((e) => console.error(`[MAIL] Error al enviar asignación a ${ap.proveedor.email}:`, e))
+        }
       }
     }
 
@@ -251,5 +256,121 @@ export async function asignarProveedores(req: Request, res: Response): Promise<v
   } catch (error: any) {
     console.error('Error al asignar proveedores:', error)
     res.status(500).json({ error: 'Error interno del servidor' })
+  }
+}
+
+export async function exportarSolicitudPDF(req: Request, res: Response): Promise<void> {
+  try {
+    const id = Number(req.params.id)
+    if (!id) {
+      res.status(400).json({ error: 'ID inválido' })
+      return
+    }
+
+    const solicitud = await prisma.solicitudEvento.findUnique({
+      where: { id },
+      include: {
+        plantel: true,
+        institucion: true,
+        materialSolicitado: true,
+        usuario: { select: { id: true, email: true, rol: true } },
+      },
+    })
+
+    if (!solicitud) {
+      res.status(404).json({ error: 'Solicitud no encontrada' })
+      return
+    }
+
+    const doc = new PDFDocument({ margin: 50, size: 'A4' })
+
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="Solicitud-${solicitud.folio}.pdf"`)
+
+    doc.pipe(res)
+
+    const fechaEvento = solicitud.fechaEvento instanceof Date
+      ? solicitud.fechaEvento.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+      : String(solicitud.fechaEvento ?? '')
+
+    const horaInicio = solicitud.horaInicio instanceof Date
+      ? `${String(solicitud.horaInicio.getUTCHours()).padStart(2, '0')}:${String(solicitud.horaInicio.getUTCMinutes()).padStart(2, '0')}`
+      : String(solicitud.horaInicio ?? '').slice(0, 5)
+
+    const horaFin = solicitud.horaFin instanceof Date
+      ? `${String(solicitud.horaFin.getUTCHours()).padStart(2, '0')}:${String(solicitud.horaFin.getUTCMinutes()).padStart(2, '0')}`
+      : String(solicitud.horaFin ?? '').slice(0, 5)
+
+    const AZUL = '#1E3A8A'
+    const ROJO = '#E11D48'
+
+    doc.font('Helvetica-Bold').fontSize(20).fillColor(AZUL).text('TIGRETRACK', { align: 'left' })
+    doc.fontSize(7).fillColor('#64748B').text('REPORTE DE COBERTURA LOGÍSTICA', { align: 'left' })
+    doc.moveDown(0.3)
+
+    const statusColors: Record<string, string> = {
+      Pendiente: '#F59E0B', Aprobado: '#1E3A8A', Completada: '#16A34A', Cancelada: '#DC2626',
+    }
+    const sColor = statusColors[solicitud.estado] ?? '#64748B'
+    doc.roundedRect(50, doc.y - 2, 50, 14, 3).fill(sColor)
+    doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(7)
+    doc.text(solicitud.estado.toUpperCase(), 75, doc.y - 5, { align: 'center' })
+
+    doc.fillColor(ROJO).fontSize(10).font('Helvetica-Bold')
+    doc.text(`Folio: ${solicitud.folio}`, 110, 52)
+
+    doc.moveDown(1.5)
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor(ROJO).lineWidth(0.6).stroke()
+    doc.moveDown(1)
+
+    doc.fontSize(14).fillColor(AZUL).font('Helvetica-Bold').text('Datos del Evento', { underline: false })
+    doc.moveDown(0.5)
+
+    doc.fontSize(9).fillColor('#1E293B').font('Helvetica')
+    const campos = [
+      ['Evento', solicitud.nombreEvento],
+      ['Fecha', fechaEvento],
+      ['Horario', `${horaInicio} — ${horaFin}`],
+      ['Ubicación', solicitud.lugarEspecifico || 'No especificada'],
+      ['Responsable', solicitud.responsableNombre],
+      ['Contacto', solicitud.contacto || '—'],
+      ['Departamento', solicitud.departamentoSolicitante || '—'],
+      ['Plantel', solicitud.plantel?.nombre || '—'],
+      ['Institución', solicitud.institucion?.nombre || '—'],
+    ]
+    for (const [label, value] of campos) {
+      doc.font('Helvetica-Bold').text(`${label}: `, { continued: true })
+      doc.font('Helvetica').text(String(value))
+    }
+
+    if (solicitud.materialSolicitado.length > 0) {
+      doc.moveDown(1)
+      doc.fontSize(11).fillColor(AZUL).font('Helvetica-Bold').text('Materiales Solicitados')
+      doc.moveDown(0.4)
+      for (const m of solicitud.materialSolicitado) {
+        doc.fontSize(9).fillColor('#1E293B').font('Helvetica').text(`• ${m.tipoMaterial}${m.descripcionOtro ? ` (${m.descripcionOtro})` : ''}`)
+      }
+    }
+
+    const desc = solicitud.descripcion || solicitud.objetivoCobertura
+    if (desc) {
+      doc.moveDown(1)
+      doc.fontSize(11).fillColor(AZUL).font('Helvetica-Bold').text('Descripción')
+      doc.moveDown(0.4)
+      doc.fontSize(9).fillColor('#334155').font('Helvetica').text(String(desc))
+    }
+
+    doc.moveDown(3)
+    doc.moveTo(50, doc.y).lineTo(230, doc.y).strokeColor('#CBD5E1').stroke()
+    doc.moveTo(365, doc.y).lineTo(545, doc.y).strokeColor('#CBD5E1').stroke()
+    doc.moveDown(0.3)
+    doc.fontSize(7).fillColor('#1E293B').font('Helvetica-Bold')
+    doc.text('Vo.Bo. del Solicitante', 140, doc.y, { align: 'center' })
+    doc.text('Autorización de la Coordinación', 455, doc.y, { align: 'center' })
+
+    doc.end()
+  } catch (error) {
+    console.error('Error al exportar PDF de solicitud:', error)
+    res.status(500).json({ error: 'Error al generar el PDF' })
   }
 }

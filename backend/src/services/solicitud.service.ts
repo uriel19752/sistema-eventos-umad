@@ -288,6 +288,9 @@ export async function obtenerSolicitudPorId(id: number, usuario: UsuarioAuth) {
       plantel: true,
       institucion: true,
       materialSolicitado: true,
+      asignacionProveedores: {
+        include: { proveedor: true },
+      },
       usuario: {
         select: { id: true, email: true, rol: true },
       },

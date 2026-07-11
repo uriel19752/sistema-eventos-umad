@@ -1,5 +1,5 @@
 import { useEffect, useState, startTransition } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { Search, CheckCircle, Star, Layers, FileText, AlertTriangle, XCircle, Info, BarChart3, User, Calendar, X, Activity, Clock, ClipboardList } from 'lucide-react'
 import SolicitudCompletaModal from '../components/SolicitudCompletaModal'
@@ -79,12 +79,11 @@ function getStatusCfg(estado: string) {
 
 const KPI_CARDS = [
   { label: 'Total Solicitudes', key: 'total', icon: Layers, color: '#2563EB', bgLight: 'rgba(37,99,235,0.08)' },
-  { label: 'Satisfaccion Global', key: 'satisfaccion', icon: Star, color: '#F59E0B', bgLight: 'rgba(245,158,11,0.08)' },
-  { label: 'Encuestas Recibidas', key: 'encuestas', icon: FileText, color: '#16A34A', bgLight: 'rgba(22,163,74,0.08)' },
 ] as const
 
-export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: string; onCambioInstitucion?: (inst: 'umad' | 'prepa' | 'imm' | 'sistema') => void }) {
+export default function Dashboard({ userRol, onCambioInstitucion, solicitudIdFromRoute }: { userRol: string; onCambioInstitucion?: (inst: 'umad' | 'prepa' | 'imm' | 'sistema') => void; solicitudIdFromRoute?: number }) {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([])
   const [filtro, setFiltro] = useState<FiltroInstitucion>('')
   const [tabTemporal, setTabTemporal] = useState('todo')
@@ -109,8 +108,8 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
   const [modalConflictoHorario, setModalConflictoHorario] = useState(false);
   const [conflictos, setConflictos] = useState<ConflictoHorario[]>([]);
 
-  const [promedioGlobal, setPromedioGlobal] = useState(0)
-  const [totalEncuestasGlobal, setTotalEncuestasGlobal] = useState(0)
+  const [, setPromedioGlobal] = useState(0)
+  const [, setTotalEncuestasGlobal] = useState(0)
   const [promediosEncuesta, setPromediosEncuesta] = useState<PromediosEncuesta | null>(null)
 
   async function cargarSolicitudes() {
@@ -179,6 +178,15 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
       }
     }
   }, [searchParams, solicitudes])
+
+  useEffect(() => {
+    if (solicitudIdFromRoute && solicitudes.length > 0) {
+      if (solicitudes.some(s => s.id === solicitudIdFromRoute)) {
+        setSolicitudSeleccionada(solicitudIdFromRoute)
+        setModalSolicitudCompleta(true)
+      }
+    }
+  }, [solicitudIdFromRoute, solicitudes])
 
   useEffect(() => {
     if (toast) {
@@ -353,8 +361,6 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
 
     const KPI_VALUES = {
       total: solicitudes.length,
-      satisfaccion: `${promedioGlobal.toFixed(1)} / 5`,
-      encuestas: totalEncuestasGlobal,
     }
 
     const pendientes = solicitudes.filter(s => s?.estado === 'Pendiente').length
@@ -446,7 +452,7 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
       </div>
 
       {/* ===== KPI CARDS ===== */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem' }}>
         {KPI_CARDS.map((card) => {
           const IconComp = card.icon
           return (
@@ -1164,7 +1170,12 @@ export default function Dashboard({ userRol, onCambioInstitucion }: { userRol: s
 
       <SolicitudCompletaModal
         open={modalSolicitudCompleta}
-        onClose={() => setModalSolicitudCompleta(false)}
+        onClose={() => {
+          setModalSolicitudCompleta(false)
+          if (solicitudIdFromRoute) {
+            navigate('/dashboard', { replace: true })
+          }
+        }}
         solicitud={solicitudActualObj ?? null}
         materiales={materiales}
         userRol={userRol}

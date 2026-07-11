@@ -52,7 +52,7 @@ function accionesSolicitudHtml(solicitudId: number): string {
     <div style="margin-top:24px;padding-top:20px;border-top:1px solid #e2e8f0;">
       <p style="margin:0 0 14px;font-weight:700;color:#0f172a;font-size:14px;">Acciones de la Solicitud</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <a href="${FRONTEND_URL}/dashboard?solicitudId=${solicitudId}" style="display:inline-block;background:#1e3a8a;color:#ffffff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;">Ver Solicitud Completa</a>
+        <a href="${FRONTEND_URL}/dashboard/solicitud/${solicitudId}" style="display:inline-block;background:#1e3a8a;color:#ffffff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;">Ver Solicitud Completa</a>
         <a href="${FRONTEND_URL}/solicitudes/cancelar?id=${solicitudId}" style="display:inline-block;background:#dc2626;color:#ffffff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;">Cancelar Solicitud</a>
       </div>
     </div>
@@ -233,13 +233,6 @@ END:VCALENDAR`
     <p><strong>Ubicación:</strong> ${datos.lugarEspecifico || 'Plantel UMAD'}</p>
     <p><strong>Responsable:</strong> ${datos.responsableNombre}</p>
     <p>El evento ha sido agregado al calendario institucional para su seguimiento. Encontrará adjunta una invitación de calendario (.ics) que puede agregar a su calendario personal.</p>
-
-    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:18px;margin:20px 0;text-align:center;">
-      <p style="margin:0 0 6px;font-weight:700;color:#92400e;font-size:15px;">Evaluación del servicio</p>
-      <p style="margin:0 0 14px;color:#78350f;font-size:13px;">Lo invitamos a evaluar la calidad del servicio recibido:</p>
-      <a href="${FRONTEND_URL}/evaluar/${datos.folio}" style="display:inline-block;background:#f59e0b;color:#ffffff;padding:10px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;">Evaluar servicio</a>
-    </div>
-
     ${accionesSolicitudHtml(datos.solicitudId)}
     <p>Atentamente,<br/>Sistema de Eventos UMAD</p>
   `

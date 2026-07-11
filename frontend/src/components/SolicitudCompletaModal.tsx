@@ -973,7 +973,7 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
             </div>
             </>)}
 
-            {(solicitud?.estado === 'Aprobado') && (
+            {(solicitud?.estado === 'Aprobado' && userRol === 'ADMIN') && (
               <div style={{ ...sectionCardStyle, border: `2px solid ${COLORS.primary}` }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
                   <div style={{
@@ -1015,6 +1015,7 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
                         <input
                           type="checkbox"
                           checked={selectedProveedorIds.includes(p.id)}
+                          disabled={!editando}
                           onChange={() => {
                             setSelectedProveedorIds((prev) =>
                               prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
@@ -1033,36 +1034,38 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
                   )}
                 </div>
 
-                <button
-                  onClick={async () => {
-                    setSavingAsignacion(true)
-                    setSuccessAsignacion('')
-                    try {
-                      await axios.post(`/api/solicitudes/${solicitud.id}/asignar-proveedores`, {
-                        proveedorIds: selectedProveedorIds,
-                      })
-                      setSuccessAsignacion('Asignación guardada correctamente')
-                    } catch {
-                      setError('Error al guardar la asignación de proveedores')
-                    } finally {
-                      setSavingAsignacion(false)
-                    }
-                  }}
-                  disabled={savingAsignacion}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-                    padding: '0.55rem 1.25rem',
-                    background: savingAsignacion ? '#94A3B8' : COLORS.accent,
-                    color: COLORS.white, border: 'none', borderRadius: '8px',
-                    fontWeight: 600, fontSize: '0.85rem', cursor: savingAsignacion ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {savingAsignacion ? 'Guardando...' : <>
-                    <Save size={15} />
-                    Guardar Asignación
-                  </>}
-                </button>
+                {editando && (
+                  <button
+                    onClick={async () => {
+                      setSavingAsignacion(true)
+                      setSuccessAsignacion('')
+                      try {
+                        await axios.post(`/api/solicitudes/${solicitud.id}/asignar-proveedores`, {
+                          proveedorIds: selectedProveedorIds,
+                        })
+                        setSuccessAsignacion('Asignación guardada correctamente')
+                      } catch {
+                        setError('Error al guardar la asignación de proveedores')
+                      } finally {
+                        setSavingAsignacion(false)
+                      }
+                    }}
+                    disabled={savingAsignacion}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                      padding: '0.55rem 1.25rem',
+                      background: savingAsignacion ? '#94A3B8' : COLORS.accent,
+                      color: COLORS.white, border: 'none', borderRadius: '8px',
+                      fontWeight: 600, fontSize: '0.85rem', cursor: savingAsignacion ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {savingAsignacion ? 'Guardando...' : <>
+                      <Save size={15} />
+                      Guardar Asignación
+                    </>}
+                  </button>
+                )}
               </div>
             )}
           </div>

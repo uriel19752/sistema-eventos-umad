@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
 import axios from 'axios'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -17,6 +17,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 type Vista = 'dashboard' | 'nueva' | 'estadisticas' | 'calendario' | 'proveedores'
 
 function AppContent() {
+  const { id } = useParams<{ id?: string }>()
   const [usuario, setUsuario] = useState<{ id: number; correo: string; rol: string; token: string } | null>(null)
   const [vistaActual, setVistaActual] = useState<Vista>('dashboard')
   const [institucionActual, setInstitucionActual] = useState<'umad' | 'prepa' | 'imm' | 'sistema'>('sistema')
@@ -52,11 +53,13 @@ function AppContent() {
     const redirectTo = getRedirectUrl()
     if (redirectTo) {
       navigate(redirectTo, { replace: true })
+    } else if (id) {
+      return
     } else {
       const searchParams = new URLSearchParams(window.location.search)
       const solicitudId = searchParams.get('solicitudId')
       if (solicitudId) {
-        navigate(`/dashboard?solicitudId=${solicitudId}`, { replace: true })
+        navigate(`/dashboard/solicitud/${solicitudId}`, { replace: true })
       } else {
         navigate('/dashboard')
       }
@@ -207,7 +210,7 @@ function AppContent() {
       </nav>
 
       <main style={{ padding: '1.75rem 2rem', minHeight: 'calc(100vh - 64px)' }}>
-        {vistaActual === 'dashboard' && <Dashboard userRol={usuario.rol} onCambioInstitucion={setInstitucionActual} />}
+        {vistaActual === 'dashboard' && <Dashboard userRol={usuario.rol} onCambioInstitucion={setInstitucionActual} solicitudIdFromRoute={id ? Number(id) : undefined} />}
         {vistaActual === 'nueva' && <NuevaSolicitud />}
         {vistaActual === 'estadisticas' && <ErrorBoundary><EstadisticasView onCambioInstitucion={setInstitucionActual} /></ErrorBoundary>}
         {vistaActual === 'calendario' && <CalendarioView userRol={usuario.rol} />}
@@ -224,7 +227,7 @@ function DetalleRedirect() {
     const params = new URLSearchParams(search)
     const id = params.get('id')
     if (id) {
-      navigate(`/dashboard?solicitudId=${id}`, { replace: true })
+      navigate(`/dashboard/solicitud/${id}`, { replace: true })
     } else {
       navigate('/dashboard', { replace: true })
     }
@@ -240,6 +243,7 @@ function App() {
         <Route path="/solicitudes/cancelar" element={<CancelarSolicitudView />} />
         <Route path="/solicitudes/detalle" element={<DetalleRedirect />} />
         <Route path="/login" element={<AppContent />} />
+        <Route path="/dashboard/solicitud/:id" element={<AppContent />} />
         <Route path="/dashboard" element={<AppContent />} />
         <Route path="/nueva" element={<AppContent />} />
         <Route path="/estadisticas" element={<AppContent />} />
