@@ -13,3 +13,6 @@ dist/
 # Logs
 *.log
 logs/
+
+# Uploaded files (croquis, etc.)
+uploads/

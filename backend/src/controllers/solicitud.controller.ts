@@ -1,4 +1,8 @@
 import type { Request, Response } from 'express'
+import type { Multer } from 'multer'
+import multer from 'multer'
+import path from 'path'
+import fs from 'fs'
 import PDFDocument from 'pdfkit'
 import * as solicitudService from '../services/solicitud.service.js'
 import type { CrearSolicitudDTO } from '../dto/crearSolicitud.dto.js'
@@ -7,6 +11,36 @@ import type { EditarSolicitudDTO } from '../dto/editarSolicitud.dto.js'
 import type { UsuarioAuth } from '../services/solicitud.service.js'
 import prisma from '../config/db.js'
 import { enviarCorreoModificacion, enviarNotificacionProveedor } from '../services/mailService.js'
+
+const CROQUIS_DIR = path.join(process.cwd(), 'uploads', 'croquis')
+
+if (!fs.existsSync(CROQUIS_DIR)) {
+  fs.mkdirSync(CROQUIS_DIR, { recursive: true })
+}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, CROQUIS_DIR),
+  filename: (req, file, cb) => {
+    const id = req.params.id
+    const ext = path.extname(file.originalname) || '.png'
+    const timestamp = Date.now()
+    cb(null, `solicitud-${id}-${timestamp}${ext}`)
+  },
+})
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['.png', '.jpg', '.jpeg', '.gif', '.pdf', '.webp']
+    const ext = path.extname(file.originalname).toLowerCase()
+    if (allowed.includes(ext)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Formato de archivo no permitido. Use: PNG, JPG, GIF, PDF, WEBP'))
+    }
+  },
+})
 
 function getUsuario(req: Request): UsuarioAuth {
   if (!req.usuario) {
@@ -374,3 +408,39 @@ export async function exportarSolicitudPDF(req: Request, res: Response): Promise
     res.status(500).json({ error: 'Error al generar el PDF' })
   }
 }
+
+export const subirCroquis = [
+  upload.single('croquis'),
+  async (req: Request, res: Response) => {
+    try {
+      const solicitudId = Number(req.params.id)
+      if (!solicitudId) {
+        return res.status(400).json({ error: 'ID de solicitud inválido' })
+      }
+
+      const solicitudExistente = await prisma.solicitudEvento.findUnique({ where: { id: solicitudId } })
+      if (!solicitudExistente) {
+        return res.status(404).json({ error: 'Solicitud no encontrada' })
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'No se envió ningún archivo' })
+      }
+
+      const croquisUrl = `/uploads/croquis/${req.file.filename}`
+
+      await prisma.solicitudEvento.update({
+        where: { id: solicitudId },
+        data: { croquisUrl },
+      })
+
+      return res.json({ croquisUrl, message: 'Croquis subido correctamente' })
+    } catch (error: any) {
+      if (error.message?.includes('Formato de archivo no permitido')) {
+        return res.status(400).json({ error: error.message })
+      }
+      console.error('Error al subir croquis:', error)
+      return res.status(500).json({ error: 'Error al subir el croquis' })
+    }
+  },
+]

@@ -205,7 +205,21 @@ export default function NuevaSolicitud() {
         generarQR: true,
       });
 
-      setIdSolicitudCreada(respuesta.data.id);
+      const nuevoId = respuesta.data.id as number;
+      setIdSolicitudCreada(nuevoId);
+
+      if (croquisFile) {
+        const formData = new FormData()
+        formData.append('croquis', croquisFile)
+        try {
+          await axios.post(`/api/solicitudes/${nuevoId}/croquis`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+        } catch (uploadErr) {
+          console.error('Error al subir croquis:', uploadErr)
+        }
+      }
+
       resetForm();
     } catch (err) {
       const msg = axios.isAxiosError(err)

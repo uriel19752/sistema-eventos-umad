@@ -850,7 +850,13 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
                             <div><span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Gestión externa: </span>{de.gestionExternaItems.join(' — ')}</div>
                           )}
                           {solicitud.croquisUrl && (
-                            <div><span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Croquis: </span><a href={solicitud.croquisUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', fontWeight: 600, fontSize: '0.8rem' }}>Ver croquis</a></div>
+                            <div>
+                              <span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Croquis: </span>
+                              <a href={`${import.meta.env.VITE_API_URL || ''}${solicitud.croquisUrl}`} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', fontWeight: 600, fontSize: '0.8rem' }}>Abrir en nueva pestaña</a>
+                              <div style={{ marginTop: '0.5rem', maxWidth: '300px', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                                <img src={`${import.meta.env.VITE_API_URL || ''}${solicitud.croquisUrl}`} alt="Croquis" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                              </div>
+                            </div>
                           )}
                         </div>
                       )}

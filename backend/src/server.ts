@@ -13,6 +13,7 @@ import calendarioRoutes from './routes/calendario.routes.js'
 import notificacionRoutes from './routes/notificacion.routes.js'
 import reportesRoutes from './routes/reportes.routes.js'
 import proveedorRoutes from './routes/proveedor.routes.js'
+import path from 'path'
 import { iniciarReminderJob } from './jobs/reminder.job.js'
 import { iniciarRecordatorioProveedoresJob } from './cron/proveedorReminder.cron.js'
 
@@ -35,6 +36,8 @@ app.get('/health', async (_req, res) => {
     res.status(503).json({ status: 'error', db: false })
   }
 })
+
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')))
 
 app.use('/api/solicitudes', solicitudRoutes)
 app.use('/api/materiales', materialRoutes)
