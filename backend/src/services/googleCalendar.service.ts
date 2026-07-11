@@ -33,6 +33,22 @@ function validateEnv(): { keyFilePath: string; calendarId: string } {
   return { keyFilePath, calendarId }
 }
 
+/**
+ * Obtiene (o crea si es la primera vez) el cliente singleton de Google Calendar API.
+ *
+ * Lógica interna:
+ * - Implementa un patrón singleton: `calendarClient` se almacena en el módulo y se reutiliza
+ *   en todas las llamadas posteriores, evitando autenticar JWT en cada solicitud.
+ * - La autenticación usa una Service Account de Google Cloud con alcance `calendar`
+ *   (lectura/escritura), leyendo las credenciales desde el archivo JSON apuntado por
+ *   `GOOGLE_SERVICE_ACCOUNT_PATH`.
+ *
+ * @throws {Error} Si `GOOGLE_SERVICE_ACCOUNT_PATH` o `GOOGLE_CALENDAR_ID` no están definidos en
+ *   las variables de entorno, o si el archivo JSON de credenciales no existe en la ruta indicada.
+ *
+ * @returns {ReturnType<typeof google.calendar>} Instancia del cliente `calendar` de Google APIs
+ *   versión 3, lista para ejecutar operaciones CRUD sobre el calendario institucional.
+ */
 export function getCalendarClient(): ReturnType<typeof google.calendar> {
   if (calendarClient) return calendarClient
 

@@ -12,12 +12,37 @@ import type { UsuarioAuth } from '../services/solicitud.service.js'
 import prisma from '../config/db.js'
 import { enviarCorreoModificacion, enviarNotificacionProveedor } from '../services/mailService.js'
 
+/**
+ * Directorio absoluto donde se almacenan los croquis subidos.
+ * Resuelve a `{cwd}/uploads/croquis/` para que Express pueda servirlos
+ * estáticamente en la ruta `/uploads/croquis/` (configurado en `app.ts`
+ * mediante `app.use('/uploads', express.static('uploads'))`).
+ */
 const CROQUIS_DIR = path.join(process.cwd(), 'uploads', 'croquis')
 
 if (!fs.existsSync(CROQUIS_DIR)) {
   fs.mkdirSync(CROQUIS_DIR, { recursive: true })
 }
 
+/**
+ * Configuración del almacenamiento en disco de multer para croquis.
+ *
+ * Nomenclatura dinámica `solicitud-${id}-${timestamp}${ext}`:
+ *
+ *   - `id`:  ID de la solicitud en base de datos, permite asociar
+ *            visualmente el archivo a su registro sin abrir la BD.
+ *   - `timestamp`: `Date.now()` (milisegundos desde epoch). Garantiza
+ *            unicidad absoluta incluso si el mismo usuario sube múltiples
+ *            croquis para la misma solicitud en un mismo segundo, ya que
+ *            los milisegundos en Node.js tienen resolución sub‑milisegundo
+ *            en la práctica (suficiente para evitar colisiones en producción).
+ *   - `ext`:  Extensión original preservada para que el navegador pueda
+ *            interpretar el Content-Type al servir el archivo estático.
+ *
+ * Esta nomenclatura evita colisiones sin necesidad de UUIDs ni tablas
+ * de metadatos adicionales, manteniendo legibilidad humana en el
+ * sistema de archivos para depuración.
+ */
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, CROQUIS_DIR),
   filename: (req, file, cb) => {
@@ -28,6 +53,24 @@ const storage = multer.diskStorage({
   },
 })
 
+/**
+ * Middleware de multer configurado para la subida de croquis.
+ *
+ * Seguridad — `fileFilter`:
+ *   Solo se permiten extensiones de imágenes estándar (PNG, JPG, GIF, WEBP)
+ *   y PDF. Cualquier otra extensión (`.exe`, `.js`, `.html`, `.svg`, `.bat`,
+ *   `.php`, `.zip`, etc.) es rechazada con un error 400. Esta lista blanca
+ *   es la primera línea de defensa contra subida de archivos maliciosos.
+ *
+ *   ⚠ Limitación conocida: la validación por extensión es débil ante
+ *   `double-extensions` (ej. `croquis.pdf.exe`). Para entornos con mayores
+ *   requisitos de seguridad, se recomienda añadir `mime-type` checking
+ *   con `file-type` (magic bytes) antes de `cb(null, true)`.
+ *
+ * Límite de tamaño (`limits.fileSize`):
+ *   10 MB. Archivos mayores son rechazados automáticamente por multer con
+ *   error `LIMIT_FILE_SIZE` antes de escribir al disco.
+ */
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -409,6 +452,53 @@ export async function exportarSolicitudPDF(req: Request, res: Response): Promise
   }
 }
 
+/**
+ * Controlador compuesto (middleware array) para la subida de croquis.
+ *
+ * Flujo asíncrono (ejecución secuencial de middlewares):
+ *
+ * 1. `upload.single('croquis')` — Middleware de multer:
+ *    a. Parsea `multipart/form-data` del cuerpo de la petición.
+ *    b. Busca el campo `'croquis'` (archivo único).
+ *    c. Evalúa `fileFilter` (solo imágenes/PDF, ≤ 10 MB).
+ *    d. Si pasa los filtros, escribe el archivo en `uploads/croquis/`
+ *       con nombre `solicitud-{id}-{timestamp}.{ext}` (véase `storage`).
+ *    e. Inyecta el archivo en `req.file` para el siguiente middleware.
+ *    f. Si falla (formato no permitido, archivo muy grande), envía el
+ *       error directamente sin llamar al siguiente middleware.
+ *
+ * 2. Handler asíncrono:
+ *    a. Valida que `req.params.id` sea un número entero positivo.
+ *    b. Verifica que la solicitud exista en base de datos (404 si no).
+ *    c. Confirma que `req.file` esté presente (400 si no).
+ *    d. Construye la URL estática relativa:
+ *         `/uploads/croquis/solicitud-{id}-{timestamp}.{ext}`
+ *       Esta URL es servida por Express como contenido estático desde
+ *       `app.use('/uploads', express.static('uploads'))`.
+ *    e. Persiste la URL en la columna `croquisUrl` de la solicitud
+ *       mediante `prisma.solicitudEvento.update()`, permitiendo que el
+ *       frontend cargue la imagen desde el CDN estático.
+ *    f. Retorna `{ croquisUrl, message }` con HTTP 200.
+ *
+ * Manejo de errores:
+ *   - Multer lanza `MulterError` con código `LIMIT_FILE_SIZE` si el
+ *     archivo excede 10 MB → se captura como error 500 genérico.
+ *   - `fileFilter` lanza `Error` con mensaje de formato no permitido →
+ *     se captura explícitamente y se retorna 400 con el mensaje.
+ *   - Cualquier otro error (BD, disco, etc.) → 500 genérico.
+ *
+ * @example
+ * // Ruta (solicitud.routes.ts)
+ * router.post('/:id/croquis', subirCroquis)
+ *
+ * // Petición esperada
+ * POST /api/solicitudes/42/croquis
+ * Content-Type: multipart/form-data
+ * Body: croquis=<archivo>
+ *
+ * // Respuesta exitosa
+ * { "croquisUrl": "/uploads/croquis/solicitud-42-1712345678901.png", "message": "Croquis subido correctamente" }
+ */
 export const subirCroquis = [
   upload.single('croquis'),
   async (req: Request, res: Response) => {

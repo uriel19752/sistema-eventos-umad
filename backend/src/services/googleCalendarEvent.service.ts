@@ -57,6 +57,27 @@ interface SolicitudData {
   materialSolicitado?: MaterialInfo[]
   }
 
+/**
+ * Combina una fecha y una hora separadas (tipadas como `Date` por Prisma) en un único string
+ * ISO 8601 con zona horaria de la Ciudad de México (CST, UTC-6).
+ *
+ * Lógica interna:
+ * - Prisma entrega `fechaEvento` como `@db.Date` y `horaInicio`/`horaFin` como `@db.Time`.
+ *   Ambos llegan como objetos `Date` de JavaScript, pero con valores UTC.
+ * - Se extraen año/mes/día de `fecha` vía `getUTCFullYear/getUTCMonth/getUTCDate` para
+ *   preservar la fecha exacta sin desviación horaria.
+ * - Se extraen hora/minuto de `hora` parseando su representación ISO (ej. `"T14:30:00.000Z"`)
+ *   con una regex, evitando transformaciones de zona horaria.
+ * - Se construye un string en formato local CST: `${y}-${m}-${d}T${hh}:${mm}:00-06:00`.
+ * - `new Date(...)` interpreta ese string como hora local CST y `.toISOString()` lo convierte
+ *   a UTC, produciendo el valor correcto para la API de Google Calendar.
+ *
+ * @param fecha - Objeto Date que contiene la fecha del evento (se usa solo la parte YYYY-MM-DD).
+ * @param hora  - Objeto Date que contiene la hora del evento (se usa solo la parte HH:mm).
+ *
+ * @returns {string} String ISO 8601 en UTC listo para enviar a Google Calendar API,
+ *   ej. `"2026-08-05T20:00:00.000Z"` para un evento a las 14:00 CST.
+ */
 function combinarFechaHora(fecha: Date, hora: Date): string {
   const y = fecha.getUTCFullYear();
   const m = String(fecha.getUTCMonth() + 1).padStart(2, '0');
@@ -130,6 +151,32 @@ export function construirDescription(solicitud: SolicitudData): string {
   ].join('\n')
 }
 
+/**
+ * Crea un evento en Google Calendar para la solicitud de cobertura aprobada.
+ *
+ * Lógica interna:
+ * - Si `solicitud.googleEventId` ya existe (evento previamente creado), se omite la operación
+ *   para evitar duplicados. Esta guarda es clave porque el endpoint de aprobación puede
+ *   ser llamado múltiples veces (idempotencia).
+ * - Obtiene el cliente singleton de Calendar vía `getCalendarClient()`.
+ * - Construye la descripción enriquecida del evento con `construirDescription()`.
+ * - Convierte fecha/hora a ISO 8601 UTC mediante `combinarFechaHora()`, que interpreta
+ *   los valores en zona horaria CST (México) antes de transformarlos a UTC.
+ * - Envía la petición `calendar.events.insert()` a la API de Google.
+ * - Retorna el `id` y `htmlLink` del evento creado para almacenarlos en la solicitud.
+ * - En caso de error, registra el detalle en consola y retorna `null` para no interrumpir
+ *   el flujo principal.
+ *
+ * @param solicitud - Datos completos de la solicitud aprobada, incluyendo folio, nombre del
+ *   evento, fechas, horas, ubicación, responsables, materiales, etc.
+ *
+ * @returns {Promise<{ id: string; htmlLink: string } | null>} Objeto con el ID del evento
+ *   en Google Calendar y su enlace HTML, o `null` si el evento ya existía o hubo un error.
+ *
+ * @throws {Error} Si `getCalendarClient()` no puede autenticar (falta de variables de entorno
+ *   o archivo de credenciales inexistente). El error NO se captura internamente, por lo que
+ *   debe manejarse en el llamador.
+ */
 export async function crearEventoSolicitud(solicitud: SolicitudData): Promise<{ id: string; htmlLink: string } | null> {
   if (solicitud.googleEventId) {
     console.log(`[Google Calendar] Evento omitido: la solicitud ${solicitud.folio} ya tiene evento (${solicitud.googleEventId})`)
@@ -148,9 +195,6 @@ export async function crearEventoSolicitud(solicitud: SolicitudData): Promise<{ 
     start: combinarFechaHora(solicitud.fechaEvento, solicitud.horaInicio),
     end: combinarFechaHora(solicitud.fechaEvento, solicitud.horaFin),
   }, null, 2))
-
-  const ymdAdmin = new Date(solicitud.fechaEvento).toISOString().split('T')[0] ?? '0000-00-00';
-  const extraerHoraAdmin = (h: any) => h && String(h).includes('T') ? (String(h).split('T')[1]?.substring(0, 5) ?? '00:00') : String(h).substring(0, 5);
 
   try {
     const event = await calendar.events.insert({

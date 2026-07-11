@@ -3,13 +3,150 @@ import { Prisma } from "../generated/prisma/client.js";
 import type { Estado } from "../generated/prisma/client.js";
 import type { FiltrosEstadisticas, DashboardEstadisticas, InsightsData, EntidadLider, MesMasActivo, TendenciaGeneral } from "../types/estadisticas.js";
 
-function buildDateFilter(fechaInicio?: string, fechaFin?: string): Record<string, unknown> {
-  const filter: Record<string, Date> = {};
-  if (fechaInicio) filter.gte = new Date(fechaInicio);
-  if (fechaFin) filter.lte = new Date(fechaFin + "T23:59:59.999Z");
-  return Object.keys(filter).length > 0 ? { fechaSolicitud: filter } : {};
+/**
+ * Convierte un par de strings ISO (fechaInicio/fechaFin) a objetos `Date` UTC
+ * que Prisma traduce correctamente contra columnas `@db.Date` de PostgreSQL,
+ * evitando desfases de zona horaria.
+ *
+ * Razonamiento matemático (fundamental para entender por qué funciona):
+ *
+ *   Dado que `@db.Date` es un tipo `date` puro en PostgreSQL (sin componente
+ *   horario), Prisma serializa los objetos `Date` de JavaScript extrayendo
+ *   únicamente la parte UTC del calendario (año-mes-día). Por lo tanto:
+ *
+ *   - `new Date("2026-08-05T00:00:00.000Z")` se serializa como `'2026-08-05'`
+ *      en SQL, que es exactamente la fecha buscada.
+ *   - Si en lugar de `T00:00:00.000Z` usáramos `T00:00:00.000-06:00` (CST),
+ *      JavaScript lo convertiría internamente a `2026-08-05T06:00:00.000Z`
+ *      (medianoche en México son 6 a. m. UTC), y PostgreSQL interpretaría
+ *      la parte UTC `2026-08-05` — misma fecha, mismo resultado.
+ *   - El caso peligroso es cuando el desarrollador usa `new Date("2026-08-05")`
+ *     (sin hora ni zona). JavaScript lo interpreta como medianoche UTC **en
+ *     algunos motores** o como medianoche hora local en otros, causando
+ *     resultados inconsistentes entre entornos.
+ *   - Al forzar explícitamente `T00:00:00.000Z` eliminamos toda ambigüedad:
+ *     JavaScript parsea como UTC fijo y PostgreSQL extrae la fecha UTC,
+ *     dando un mapeo biyectivo perfecto sin desfases.
+ *
+ * Para el límite superior (`fechaFin`) se usa `T23:59:59.999Z`, que cubre
+ * inclusive todo el día de la fecha final en UTC.
+ *
+ * @param fechaInicio - String ISO opcional para el límite inferior (inclusive).
+ *   Se trunca a YYYY-MM-DD y se fuerza a medianoche UTC.
+ * @param fechaFin    - String ISO opcional para el límite superior (inclusive).
+ *   Se trunca a YYYY-MM-DD y se fuerza a 23:59:59.999 UTC.
+ *
+ * @returns Objeto con propiedades `gte` y/o `lte` tipadas como `Date`, listo
+ *   para propagarse a un filtro `where` de Prisma.
+ */
+function dateRangeMexico(fechaInicio?: string, fechaFin?: string): { gte?: Date; lte?: Date } {
+  const filter: { gte?: Date; lte?: Date } = {};
+  if (fechaInicio) {
+    const startStr = String(fechaInicio).split('T')[0];
+    filter.gte = new Date(`${startStr}T00:00:00.000Z`);
+  }
+  if (fechaFin) {
+    const endStr = String(fechaFin).split('T')[0];
+    filter.lte = new Date(`${endStr}T23:59:59.999Z`);
+  }
+  return filter;
 }
 
+/**
+ * Envuelve `dateRangeMexico` en la estructura anidada que Prisma espera para
+ * filtros relacionales ( `{ fechaEvento: { gte: ..., lte: ... } }` ).
+ *
+ * Si no hay filtros de fecha, retorna `{}` para que el llamador pueda
+ * propagarlo sin condiciones adicionales.
+ *
+ * @param fechaInicio - Límite inferior opcional (se pasa a `dateRangeMexico`).
+ * @param fechaFin    - Límite superior opcional (se pasa a `dateRangeMexico`).
+ *
+ * @returns Objeto `where` parcial para Prisma, listo para combinar con
+ *   otros filtros via spread.
+ */
+function buildDateFilter(fechaInicio?: string, fechaFin?: string): Record<string, unknown> {
+  const filter = dateRangeMexico(fechaInicio, fechaFin);
+  return Object.keys(filter).length > 0 ? { fechaEvento: filter } : {};
+}
+
+/**
+ * Obtiene todas las métricas del dashboard: contadores por estado, distribución
+ * por plantel/institución/material, historial mensual, tendencias intermensuales,
+ * insights estratégicos, promedios CSAT con diagnóstico automático y variación
+ * contra el periodo anterior.
+ *
+ * Lógica interna y optimizaciones:
+ *
+ * 1. **Contadores por estado** (líneas 50–63):
+ *    Un solo `groupBy` reemplaza 5 consultas `COUNT` individuales (una por
+ *    estado). La base de datos agrupa y cuenta simultáneamente todos los
+ *    grupos en una única consulta.
+ *
+ * 2. **Historial mensual** (líneas 124–205):
+ *    `$queryRaw` con `GROUP BY EXTRACT(YEAR/MONTH ...)` reemplaza un `findMany`
+ *    masivo seguido de agrupación en JavaScript. Evita transferir miles de filas
+ *    al servidor Node.js, reduciendo memoria y tiempo de CPU. Las condiciones
+ *    SQL se construyen con `Prisma.sql` y `Prisma.join` para conservar la
+ *    seguridad contra inyección SQL mediante parámetros tipados.
+ *
+ * 3. **Tendencias intermensuales** (líneas 251–302):
+ *    Dos `groupBy` (mes actual + mes anterior) reemplazan 10 consultas COUNT
+ *    (5 por cada mes). Solo se ejecutan cuando no hay filtros de rango de
+ *    fechas, ya que con filtros arbitrarios la comparación mes contra mes
+ *    pierde sentido semántico. La variación porcentual se calcula con
+ *    `(actual - anterior) / anterior * 100`; si el periodo anterior es 0,
+ *    se retorna 100 % (crecimiento desde la nada).
+ *
+ * 4. **Promedios CSAT** (líneas 352–358 y 372–435):
+ *    Se usa `_avg` nativo de Prisma. Todos los accesos a `_avg.*` implementan
+ *    el operador `??` (nullish coalescing) para que, cuando la base de datos
+ *    devuelva `null` (no hay encuestas), el frontend reciba `0` en lugar de
+ *    `null`, evitando errores de renderizado como `Cannot read properties of
+ *    null`.
+ *
+ * 5. **Distribución de estrellas** (líneas 367–370):
+ *    Se fuerza el array `[5, 4, 3, 2, 1]` con `found?._count ?? 0` para
+ *    garantizar que siempre se emitan 5 posiciones incluso si algún nivel
+ *    de satisfacción no tiene registros.
+ *
+ * 6. **CSAT vs periodo anterior** (líneas 389–413):
+ *    Calcula la longitud exacta del periodo actual filtrado (o del último mes
+ *    natural si no hay filtros) y retrocede esa misma longitud para obtener
+ *    un periodo comparable estadísticamente, usando `prevDateStart` y
+ *    `prevDateEnd`.
+ *
+ * 7. **Diagnóstico automático** (líneas 438–461):
+ *    Clasifica el promedio global CSAT en 5 niveles (Excelente, Bueno,
+ *    Aceptable, Deficiente, Crítico) con umbrales fijos, generando un
+ *    mensaje descriptivo y un color asociado para visualización en el
+ *    frontend.
+ *
+ * @param filtros - Filtros opcionales de tipo `FiltrosEstadisticas`:
+ *   - `fechaInicio` / `fechaFin`: rango de fechas para filtrar solicitudes.
+ *   - `plantel`: nombre del plantel para filtrar (o `"todos"`).
+ *   - `institucion`: nombre de la institución para filtrar (o `"todos"`).
+ *   - `rol`: rol del usuario (`'ADMIN'` o `'USUARIO'`). Los usuarios no-admin
+ *     solo ven sus propias solicitudes cuando no se especifica `usuarioId`.
+ *   - `usuarioId`: ID del usuario para filtrar solicitudes propias.
+ *
+ * @returns {Promise<DashboardEstadisticas>} Objeto completo con:
+ *   - `totalSolicitudes`, `pendientes`, `aprobadas`, `completadas`, `canceladas`
+ *   - `porPlantel`, `porInstitucion`, `porMaterial`, `porMes`
+ *   - `tendencias` (variación porcentual mes actual vs anterior)
+ *   - `insights` (plantel líder, institución líder, mes más activo, tasas)
+ *   - `promediosEncuesta` (puntualidad, calidadTécnica, atenciónStaff,
+ *     satisfacciónGral + totalEncuestas)
+ *   - `diagnostico` (nivel, mensaje, color)
+ *   - `variacionCSAT` (actual, anterior, diferencia)
+ *   - `distribucionEstrellas` (conteo de encuestas por estrella 1‑5)
+ *
+ * @throws {Error} Si Prisma lanza una excepción de conexión o consulta
+ *   inválida. Dado que todas las consultas se ejecutan dentro de
+ *   `Promise.all`, cualquier error individual propaga el rechazo de toda
+ *   la promesa agregada. El llamador debe manejar el error con try-catch
+ *   y retornar una respuesta HTTP 500.
+ */
 export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas): Promise<DashboardEstadisticas> {
   const dateWhere = buildDateFilter(filtros?.fechaInicio, filtros?.fechaFin);
 
@@ -73,13 +210,15 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
   let endDate: Date;
 
   if (filtros?.fechaInicio) {
-    startDate = new Date(filtros.fechaInicio);
+    const startStr = String(filtros.fechaInicio).split('T')[0];
+    startDate = new Date(new Date(`${startStr}T00:00:00.000-06:00`).toISOString());
   } else {
     startDate = new Date(today.getFullYear(), today.getMonth() - 11, 1);
   }
 
   if (filtros?.fechaFin) {
-    endDate = new Date(filtros.fechaFin);
+    const endStr = String(filtros.fechaFin).split('T')[0];
+    endDate = new Date(new Date(`${endStr}T23:59:59.999-06:00`).toISOString());
   } else {
     endDate = today;
   }
@@ -110,20 +249,22 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
 
   // Rango del mes inicial y final (siempre presente para delimitar el histiorial)
   sqlConditions.push(
-    Prisma.sql`se.fecha_solicitud >= ${new Date(startDate.getFullYear(), startDate.getMonth(), 1)}::timestamp`,
+    Prisma.sql`se.fecha_evento >= ${new Date(startDate.getFullYear(), startDate.getMonth(), 1)}::date`,
   );
   sqlConditions.push(
-    Prisma.sql`se.fecha_solicitud < ${new Date(endDate.getFullYear(), endDate.getMonth() + 1, 1)}::timestamp`,
+    Prisma.sql`se.fecha_evento < ${new Date(endDate.getFullYear(), endDate.getMonth() + 1, 1)}::date`,
   );
 
   // Filtro adicional por fecha de inicio (si es más restrictivo que el rango mensual)
   if (filtros?.fechaInicio) {
-    sqlConditions.push(Prisma.sql`se.fecha_solicitud >= ${new Date(filtros.fechaInicio)}::timestamp`);
+    const startStr = String(filtros.fechaInicio).split('T')[0];
+    sqlConditions.push(Prisma.sql`se.fecha_evento >= ${new Date(`${startStr}T00:00:00.000Z`)}::date`);
   }
 
   // Filtro adicional por fecha de fin (si es más restrictivo que el rango mensual)
   if (filtros?.fechaFin) {
-    sqlConditions.push(Prisma.sql`se.fecha_solicitud <= ${new Date(filtros.fechaFin + "T23:59:59.999Z")}::timestamp`);
+    const endStr = String(filtros.fechaFin).split('T')[0];
+    sqlConditions.push(Prisma.sql`se.fecha_evento <= ${new Date(`${endStr}T23:59:59.999Z`)}::date`);
   }
 
   if (filtros?.plantel && filtros.plantel !== "todos") {
@@ -155,15 +296,15 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
 
     prisma.$queryRaw<Array<{ año: number; mes_num: number; total: bigint }>>`
       SELECT
-        EXTRACT(YEAR FROM se.fecha_solicitud)::int AS año,
-        EXTRACT(MONTH FROM se.fecha_solicitud)::int AS mes_num,
+        EXTRACT(YEAR FROM se.fecha_evento)::int AS año,
+        EXTRACT(MONTH FROM se.fecha_evento)::int AS mes_num,
         COUNT(*)::int AS total
       FROM solicitudes_eventos se
       LEFT JOIN planteles p ON se.plantel_id = p.id
       LEFT JOIN instituciones i ON se.institucion_id = i.id
       WHERE ${whereSQL}
-      GROUP BY EXTRACT(YEAR FROM se.fecha_solicitud), EXTRACT(MONTH FROM se.fecha_solicitud)
-      ORDER BY MIN(se.fecha_solicitud) ASC
+      GROUP BY EXTRACT(YEAR FROM se.fecha_evento), EXTRACT(MONTH FROM se.fecha_evento)
+      ORDER BY MIN(se.fecha_evento) ASC
     `,
 
     prisma.encuestaSatisfaccion.aggregate({
@@ -243,7 +384,7 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
         by: ["estado"],
         where: {
           ...baseWhere,
-          fechaSolicitud: { gte: startOfCurrentMonth, lt: startOfNextMonth } as const,
+          fechaEvento: { gte: startOfCurrentMonth, lt: startOfNextMonth } as const,
         },
         _count: true,
       }),
@@ -251,7 +392,7 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
         by: ["estado"],
         where: {
           ...baseWhere,
-          fechaSolicitud: { gte: startOfPreviousMonth, lt: startOfCurrentMonth } as const,
+          fechaEvento: { gte: startOfPreviousMonth, lt: startOfCurrentMonth } as const,
         },
         _count: true,
       }),
@@ -359,8 +500,10 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
   let prevDateEnd: Date;
 
   if (filtros?.fechaInicio) {
-    const currentStart = new Date(filtros.fechaInicio);
-    const currentEnd = filtros.fechaFin ? new Date(filtros.fechaFin) : new Date();
+    const startStr = String(filtros.fechaInicio).split('T')[0];
+    const endStr = filtros.fechaFin ? String(filtros.fechaFin).split('T')[0] : '';
+    const currentStart = new Date(`${startStr}T00:00:00.000Z`);
+    const currentEnd = filtros.fechaFin ? new Date(`${endStr}T23:59:59.999Z`) : new Date();
     const periodLen = currentEnd.getTime() - currentStart.getTime();
     prevDateEnd = new Date(currentStart);
     prevDateStart = new Date(prevDateEnd.getTime() - periodLen);
@@ -370,7 +513,7 @@ export async function obtenerDashboardEstadisticas(filtros?: FiltrosEstadisticas
   }
 
   const prevWhere: Record<string, unknown> = {
-    fechaSolicitud: { gte: prevDateStart, lt: prevDateEnd },
+    fechaEvento: { gte: prevDateStart, lt: prevDateEnd },
   };
   if (filtros?.plantel && filtros.plantel !== "todos") {
     prevWhere.plantel = { nombre: filtros.plantel };

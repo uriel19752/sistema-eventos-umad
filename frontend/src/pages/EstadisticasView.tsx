@@ -168,6 +168,51 @@ export default function EstadisticasView({ onCambioInstitucion }: { onCambioInst
     }
   }
 
+  /**
+   * Detona la descarga de un archivo PDF o Excel con los datos actuales del
+   * dashboard, mapeando los estados de los filtros dinámicos a query params.
+   *
+   * Mapeo de filtros → URLSearchParams:
+   *
+   *   Los filtros activos en el estado del componente se traducen uno a uno
+   *   a parámetros de consulta HTTP:
+   *
+   *     Estado React                   Query param
+   *     ─────────────────────────────────────────────────
+   *     plantelFiltro !== 'todos'  →   `?plantel={nombre}`
+   *     institucionFiltro !== 'todos'→ `?institucion={nombre}`
+   *     fechaInicio (string)       →   `?fechaInicio={YYYY-MM-DD}`
+   *     fechaFin (string)          →   `?fechaFin={YYYY-MM-DD}`
+   *
+   *   Los filtros con valor `'todos'` se omiten para no enviar parámetros
+   *   redundantes al backend. El objeto `params` se pasa directamente a
+   *   `axios.get(..., { params })`, que serializa a query string.
+   *
+   * Flujo binario de descarga:
+   *
+   *   1. El endpoint retorna un `Blob` binario (PDF o XLSX) con
+   *      `responseType: 'blob'` para que Axios no intente parsear JSON.
+   *   2. Se crea una URL efímera con `window.URL.createObjectURL(blob)`.
+   *   3. Se inserta un `<a>` invisible en el DOM con `href = {url}` y
+   *      `download = {nombre archivo}`, y se dispara un clic programático.
+   *   4. Se remueve el `<a>` y se libera la URL con `revokeObjectURL()`.
+   *
+   *   Este patrón evita abrir el binario en una pestaña nueva y funciona
+   *   en todos los navegadores modernos.
+   *
+   * Enrutamiento:
+   *   La función delega en cuatro handlers específicos según el tipo de
+   *   reporte y la sub-pestaña activa, para mantener la lógica de
+   *   generación del archivo separada:
+   *   - `handleExportPDF()`             — PDF operativo (logística)
+   *   - `handleExportPDF_Satisfaccion()` — PDF calidad (satisfacción)
+   *   - `handleExportExcel()`            — Excel operativo
+   *   - `handleExportExcel_Satisfaccion()`— Excel calidad
+   *
+   * @param tipo - Formato de exportación: `'pdf'` o `'excel'`.
+   *
+   * @returns {Promise<void>}
+   */
   const handleExport = async (tipo: 'pdf' | 'excel') => {
     if (tipo === 'pdf' && subTab !== 'satisfacion') {
       await handleExportPDF()

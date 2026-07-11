@@ -46,6 +46,22 @@ const transport = nodemailer.createTransport({
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
+/**
+ * Genera el bloque HTML con los botones de acción que se insertan al final del correo.
+ *
+ * Lógica interna:
+ * - Construye un string HTML directamente (sin templates engines) para evitar dependencias
+ *   y mantener la compatibilidad con clientes de correo que no ejecutan JavaScript.
+ * - Los estilos están inline (obligatorio para la mayoría de clientes de correo: Gmail,
+ *   Outlook, etc.) y usan unidades relativas para adaptarse al ancho del visor.
+ * - `FRONTEND_URL` se resuelve en cada llamada desde `process.env` para soportar
+ *   diferentes entornos (local, staging, producción) sin recompilar.
+ *
+ * @param solicitudId - ID numérico de la solicitud en base de datos, usado para construir
+ *   los enlaces de "Ver Solicitud Completa" y "Cancelar Solicitud".
+ *
+ * @returns {string} Fragmento HTML listo para incrustar en el cuerpo del correo.
+ */
 function accionesSolicitudHtml(solicitudId: number): string {
   const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
   return `
@@ -170,6 +186,35 @@ interface DatosNotificacionEstado {
   descripcionCompleta?: string
 }
 
+/**
+ * Envía al solicitante un correo de aprobación con los datos del evento y una invitación
+ * de calendario (.ics) adjunta.
+ *
+ * Lógica interna:
+ * - Toda la manipulación de fechas/horas se hace con **strings puros** en lugar de objetos
+ *   `Date` de JavaScript para evitar que el runtime interprete las fechas en la zona horaria
+ *   del servidor (UTC por defecto en Node.js). Los pasos son:
+ *     1. `extraerHHMM()` extrae HH:mm del string/hora usando una regex, sin pasar por
+ *        constructores Date que aplicarían timezone offsets.
+ *     2. Se construye un string fecha-hora explícito con offset `-06:00` (CST, México).
+ *     3. `new Date(`${...}T${...}:00-06:00`).toISOString()` convierte a UTC sin ambigüedad,
+ *        generando un string como `"2026-08-05T20:00:00.000Z"`.
+ *     4. Para el formato iCal (DTSTART/DTEND) se eliminan los separadores `-` y `:` con una
+ *        regex y se concatenan como `"20260805T200000Z"`, que es el estándar VCALENDAR.
+ * - La invitación .ics se envía como adjunto icalEvent con método REQUEST para que el cliente
+ *   de correo (Gmail, Outlook) ofrezca al destinatario agregar el evento a su calendario.
+ * - El HTML del cuerpo se construye con la plantilla `plantillaCorreoWrapper()` que aplica
+ *   el branding institucional de TigreTrack.
+ *
+ * @param datos - Datos de la solicitud aprobada: destinatario, folio, nombreEvento,
+ *   fechaEvento, horaInicio, horaFin, lugarEspecifico, responsableNombre, y opcionalmente
+ *   descripcionCompleta para incluir en el .ics.
+ *
+ * @returns {Promise<void>}
+ *
+ * @throws {Error} Si `transport.sendMail()` falla (problemas de red, autenticación SMTP,
+ *   o formato inválido del .ics). El error se propaga al llamador para que lo maneje.
+ */
 export async function enviarCorreoAprobacion(datos: DatosNotificacionEstado): Promise<void> {
   console.log('[MAIL] Enviando correo de aprobación')
   console.log('[MAIL] Email destinatario (aprobación):', datos.destinatario);

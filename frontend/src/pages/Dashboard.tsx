@@ -168,6 +168,27 @@ export default function Dashboard({ userRol, onCambioInstitucion, solicitudIdFro
     }
   }, [filtro, onCambioInstitucion])
 
+  /**
+   * Efecto de auto-selección por query param `?solicitudId=<id>`.
+   *
+   * Flujo de deep linking desde enlaces de correo:
+   * 1. El usuario hace clic en un enlace como
+   *    `https://app/solicitudes/detalle?id=42` (véase `DetalleRedirect` en
+   *    `App.tsx`), que redirige a `/dashboard/solicitud/42`.
+   * 2. `AppContent` captura `:id` con `useParams`, lo pasa como prop
+   *    `solicitudIdFromRoute` a `<Dashboard>`, y también lo deja como
+   *    query param `?solicitudId=<id>` en la URL.
+   * 3. Este efecto lee `?solicitudId` de la URL actual mediante
+   *    `useSearchParams()` y, cuando las solicitudes ya se cargaron,
+   *    busca si el ID existe en la lista.
+   * 4. Si existe, establece `solicitudSeleccionada` (que abre el panel
+   *    de detalle en la interfaz) y hace scroll suave al panel.
+   * 5. Si el ID no existe (solicitud eliminada o acceso inválido),
+   *    simplemente no se selecciona nada — no hay error.
+   *
+   * Dependencias: `[searchParams, solicitudes]` — se re-ejecuta cuando
+   * cambia la URL o cuando el listado termina de cargar.
+   */
   useEffect(() => {
     const solicitudIdParam = searchParams.get('solicitudId')
     if (solicitudIdParam && solicitudes.length > 0) {
@@ -179,6 +200,31 @@ export default function Dashboard({ userRol, onCambioInstitucion, solicitudIdFro
     }
   }, [searchParams, solicitudes])
 
+  /**
+   * Efecto de auto-apertura del modal de detalles completo cuando se navega
+   * directamente a `/dashboard/solicitud/:id`.
+   *
+   * Flujo de deep linking con modal completo:
+   * 1. Tras la redirección desde `DetalleRedirect`, la URL queda
+   *    `/dashboard/solicitud/42` y `AppContent` pasa `solicitudIdFromRoute = 42`
+   *    como prop al Dashboard.
+   * 2. Este efecto difiere del anterior en que NO solo selecciona la solicitud
+   *    (panel de detalle), sino que además ABRE el modal de solicitud completa
+   *    (`setModalSolicitudCompleta(true)`). Esto replica la experiencia de que
+   *    el usuario hubiera hecho clic en "Ver Solicitud Completa" manualmente.
+   * 3. La guarda `solicitudes.some(s => s.id === solicitudIdFromRoute)` evita
+   *    abrir el modal para IDs inexistentes.
+   *
+   * Separación de efectos:
+   * - El efecto de `searchParams` maneja el panel lateral de detalle (cuando el
+   *   query param está presente en la URL actual).
+   * - Este efecto maneja el modal completo (cuando la ruta incluye `:id` como
+   *   segmento de path, proveniente de un enlace de correo).
+   * Ambos pueden dispararse en la misma navegación, resultando en panel de
+   *   detalle + modal abierto simultáneamente (comportamiento esperado).
+   *
+   * Dependencias: `[solicitudIdFromRoute, solicitudes]`.
+   */
   useEffect(() => {
     if (solicitudIdFromRoute && solicitudes.length > 0) {
       if (solicitudes.some(s => s.id === solicitudIdFromRoute)) {

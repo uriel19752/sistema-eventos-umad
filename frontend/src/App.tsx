@@ -220,6 +220,22 @@ function AppContent() {
   )
 }
 
+/**
+ * Componente de redirección para enlaces profundos (deep links) desde correos.
+ *
+ * Flujo de parsing:
+ * 1. Los correos de notificación (aprobación, cancelación) incluyen enlaces del
+ *    tipo `https://app/solicitudes/detalle?id=42`.
+ * 2. Este componente se monta en `/solicitudes/detalle` y extrae el query param
+ *    `id` mediante `URLSearchParams`.
+ * 3. Si el parámetro existe, redirige a `/dashboard/solicitud/{id}` que, a su vez,
+ *    renderiza `AppContent` con el hook `useParams` capturando `:id`.
+ * 4. Si no existe `id`, redirige al dashboard base.
+ *
+ * El componente retorna `null` (no renderiza nada visible) porque su único
+ * propósito es la navegación programática con `{ replace: true }`, que evita
+ * que la URL de redirección quede en el historial del navegador.
+ */
 function DetalleRedirect() {
   const navigate = useNavigate()
   useEffect(() => {
@@ -235,6 +251,38 @@ function DetalleRedirect() {
   return null
 }
 
+/**
+ * Componente raíz de la aplicación — arquitectura SPA con enrutamiento del lado
+ * del cliente (React Router v6).
+ *
+ * Propósito global:
+ *   Define el árbol de rutas de la SPA, actuando como la red de distribución
+ *   declarativa del frontend. Cada ruta mapea una URL a un componente página.
+ *
+ * Estructura de rutas:
+ *
+ *   **Rutas públicas** (sin autenticación):
+ *   - `/evaluar/:id`          → Formulario público de encuesta de satisfacción
+ *                               (asistentes externos al evento).
+ *   - `/solicitudes/cancelar` → Vista pública para cancelar solicitudes desde
+ *                               el enlace del correo de confirmación.
+ *   - `/solicitudes/detalle`  → Redirección temporal (deep link) que parsea
+ *                               `?id=` y redirige a `/dashboard/solicitud/:id`.
+ *
+ *   **Rutas protegidas** (envuelven `AppContent`, que a su vez verifica que
+ *   `usuario` no sea `null` antes de renderizar el Dashboard):
+ *   - `/login`                 → Pantalla de inicio de sesión.
+ *   - `/dashboard/solicitud/:id` → Dashboard con el modal de detalle auto-abierto
+ *                                 para la solicitud indicada en la URL.
+ *   - `/dashboard`             → Dashboard principal con tabla de solicitudes.
+ *   - `/nueva`                 → Formulario de nueva solicitud de cobertura.
+ *   - `/estadisticas`          → Panel de estadísticas y gráficas.
+ *   - `/calendario`            → Vista del calendario institucional.
+ *   - `/proveedores`           → CRUD de proveedores (solo ADMIN).
+ *   - `/`                      → Redirección predeterminada a `/dashboard`.
+ *
+ * @returns Árbol de rutas renderizado por `BrowserRouter`.
+ */
 function App() {
   return (
     <BrowserRouter>

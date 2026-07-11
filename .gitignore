@@ -43,6 +43,15 @@ reporte-semana-1.md
 reporte-semana-2.md
 generar-diagramas.md
 
+# Compiled JS/DTS/Maps from TypeScript source
+backend/src/**/*.js
+backend/src/**/*.js.map
+backend/src/**/*.d.ts
+backend/src/**/*.d.ts.map
+
+# Google service account credentials
+credentials/
+
 # Editor directories
 .vscode/
 .idea/

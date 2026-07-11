@@ -1,3 +1,30 @@
+/**
+ * Buzón de notificaciones reactivo con indicador de pendientes y actualización
+ * optimista al marcar como leídas.
+ *
+ * Flujo de consumo reactivo:
+ *   1. Al montar el componente, se dispara `GET /api/notificaciones` que retorna
+ *      el payload completo de notificaciones del usuario autenticado (titulo,
+ *      mensaje, leida, fechaCreacion).
+ *   2. El estado `notificaciones[]` almacena toda la lista. El badge numérico
+ *      se calcula de forma reactiva con `noLeidas =
+ *      notificaciones.filter(n => !n.leida).length`, que se re-evalúa en cada
+ *      render sin necesidad de un estado separado.
+ *   3. Cuando el usuario hace clic en una notificación no leída, se dispara
+ *      `manejarLectura(id)` que aplica una actualización optimista local
+ *      (`setNotificaciones` con el item mutado a `leida: true`) y, en paralelo,
+ *      envía `PATCH /api/notificaciones/:id/leida` al backend. Si la petición
+ *      falla, el estado local ya se actualizó (pérdida de consistencia mínima
+ *      aceptada para mantener la sensación de fluidez).
+ *   4. El menú desplegable se abre/cierra con el estado `open` y se cierra
+ *      automáticamente al hacer clic fuera del componente mediante un
+ *      `mousedown` listener en `document`.
+ *
+ * Props: Sin props — el usuario autenticado se obtiene del token JWT que
+ * Axios inyecta automáticamente en todas las peticiones via
+ * `axios.defaults.headers.common['Authorization']`.
+ */
+
 import { useEffect, useState, useRef } from 'react'
 import axios from 'axios'
 import { Bell, Check } from 'lucide-react'
@@ -15,8 +42,36 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
+  /**
+   * Cómputo reactivo del badge numérico de pendientes.
+   *
+   * Se calcula directamente en el render (sin estado ni `useMemo`) porque
+   * el filtrado sobre arrays pequeños (< 100 items) es despreciable en
+   * costo y evita la sobrecarga de mantener un estado sincronizado.
+   *
+   * El resultado controla dos elementos visuales:
+   * - La burbuja sobre el icono de la campana (con tope `9+`).
+   * - La etiqueta "{N} sin leer" en el header del menú desplegable.
+   */
   const noLeidas = notificaciones.filter((n) => !n.leida).length
 
+  /**
+   * Efecto de carga inicial — obtiene el buzón de alertas del usuario.
+   *
+   * Consume `GET /api/notificaciones` que retorna un array con el payload:
+   *   [
+   *     { id, titulo, mensaje, leida: boolean, fechaCreacion: ISO },
+   *     ...
+   *   ]
+   *
+   * El endpoint filtra automáticamente por `req.usuario.id` gracias al
+   * middleware de autenticación aplicado en la ruta. No se envía ningún
+   * parámetro adicional.
+   *
+   * Si la petición falla (red, servidor caído), el error se captura en
+   * silencio y el estado permanece como array vacío, mostrando el mensaje
+   * "Sin notificaciones" en la UI.
+   */
   useEffect(() => {
     axios
       .get<Notificacion[]>('/api/notificaciones')
@@ -24,6 +79,14 @@ export default function NotificationBell() {
       .catch(() => {})
   }, [])
 
+  /**
+   * Cierra el menú desplegable al hacer clic fuera del componente.
+   *
+   * Usa un listener `mousedown` en `document` para detectar clics fuera
+   * del contenedor (`ref`). Se prefiere `mousedown` sobre `click` porque
+   * se dispara antes y evita parpadeos cuando el clic cae sobre otro
+   * elemento que también abre un menú.
+   */
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -34,6 +97,33 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  /**
+   * Marca una notificación como leída con actualización optimista.
+   *
+   * Flujo asíncrono (Optimistic UI Update):
+   *
+   *   1. **Actualización local inmediata**: se mapea `notificaciones[]`
+   *      cambiando `leida: true` para el `id` recibido. Esto actualiza
+   *      el badge y el estilo visual (fondo blanco, indicador gris) de
+   *      forma instantánea, sin esperar la respuesta del servidor.
+   *
+   *   2. **Persistencia en backend**: se envía `PATCH
+   *      /api/notificaciones/{id}/leida` al mismo tiempo. El endpoint
+   *      actualiza la columna `leida = true` en la BD y retorna el
+   *      registro actualizado.
+   *
+   *   3. **Manejo de error**: si la petición HTTP falla, el estado local
+   *      ya se actualizó (quedó marcada como leída en la UI pero no en
+   *      la BD). En la próxima recarga de página, el `useEffect` de
+   *      carga inicial sincronizará el estado real desde el servidor.
+   *      Esta asimetría se considera aceptable para mantener la
+   *      experiencia fluida (la notificación ya fue leída por el usuario,
+   *      el marcarla como leída en BD es secundario).
+   *
+   * @param id - ID numérico de la notificación a marcar como leída.
+   *
+   * @returns {Promise<void>}
+   */
   async function manejarLectura(id: number) {
     try {
       await axios.patch(`/api/notificaciones/${id}/leida`)

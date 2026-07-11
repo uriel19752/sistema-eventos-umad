@@ -103,6 +103,34 @@ function formatearFechaInput(stringFecha: unknown) {
   return d.toISOString().split('T')[0]
 }
 
+/**
+ * Modal de inspección de solicitud — ficha unificada de auditoría operativa.
+ *
+ * Rol:
+ *   Actúa como la vista de detalle completa (single source of truth) para
+ *   cualquier solicitud. Desde aquí el usuario puede:
+ *   - Consultar todos los campos en modo solo lectura.
+ *   - Editar datos generales y específicos (si el rol lo permite).
+ *   - Exportar la solicitud a PDF incluyendo el código QR como imagen.
+ *   - Descargar el código QR individual.
+ *   - Asignar proveedores externos al evento (solo ADMIN).
+ *   - Visualizar el croquis del acomodo (con bifurcación imagen/PDF).
+ *
+ * Props (contrato):
+ * @property {boolean} open        - Controla visibilidad del modal (renderiza
+ *   `null` si es `false` para no ocupar memoria en el DOM).
+ * @property {() => void} onClose  - Callback para cerrar el modal. El padre
+ *   debe resetear el estado de selección.
+ * @property {SolicitudFields | null} solicitud - Datos completos de la solicitud
+ *   a inspeccionar/editar. Si es `null` se muestra un mensaje de carga.
+ * @property {Material[]} materiales - Lista de materiales asociados a la
+ *   solicitud (se pasa como prop para evitar fetching adicional).
+ * @property {string} [userRol]    - Rol del usuario autenticado. Determina
+ *   la visibilidad del panel de asignación de proveedores (solo ADMIN) y
+ *   el comportamiento de los botones de acción.
+ * @property {() => void} [onRefresh] - Callback opcional para refrescar la
+ *   lista de solicitudes en el padre tras guardar cambios.
+ */
 export default function SolicitudCompletaModal({ open, onClose, solicitud, materiales = [], userRol, onRefresh }: Props) {
   const [paso, setPaso] = useState(1)
   const [editando, setEditando] = useState(false)
@@ -586,6 +614,30 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <h3 style={{ margin: 0, color: COLORS.primary, fontWeight: 700, fontSize: '1.3rem' }}>Solicitud Completa</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {/**
+             * Botones de acción — separación visual de facultades por rol:
+             *
+             * - **Editar**: cualquier usuario autenticado puede entrar en modo
+             *   edición en el frontend. Sin embargo, al enviar (`handleGuardar`),
+             *   el backend (`PUT /api/solicitudes/:id`) verifica que el
+             *   `req.usuario.rol === 'ADMIN'` o que el usuario sea el propietario
+             *   de la solicitud. Esto implementa el principio de defensa en
+             *   profundidad: el frontend no bloquea la UI, pero el backend
+             *   rechaza cualquier modificación no autorizada.
+             *
+             * - **Guardar / Cancelar** (modo edición): solo visibles cuando
+             *   `editando === true`. El botón Guardar maneja el estado de carga
+             *   (`guardando`) para evitar doble envío.
+             *
+             * - **Panel de asignación de proveedores** (más abajo, línea ~1038):
+             *   solo visible para `userRol === 'ADMIN'` y cuando la solicitud está
+             *   en estado `'Aprobado'`. Esta restricción es tanto de UI como de
+             *   backend (el endpoint `POST /:id/asignar-proveedores` también
+             *   verifica el rol).
+             *
+             * - **Exportar a PDF** y **Descargar QR**: no tienen restricción de
+             *   rol porque son operaciones de solo lectura.
+             */}
             {!editando ? (
               <button
                 onClick={() => setEditando(true)}
@@ -849,15 +901,66 @@ export default function SolicitudCompletaModal({ open, onClose, solicitud, mater
                           {de.gestionExternaItems && de.gestionExternaItems.length > 0 && (
                             <div><span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Gestión externa: </span>{de.gestionExternaItems.join(' — ')}</div>
                           )}
-                          {solicitud.croquisUrl && (
-                            <div>
-                              <span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Croquis: </span>
-                              <a href={`${import.meta.env.VITE_API_URL || ''}${solicitud.croquisUrl}`} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', fontWeight: 600, fontSize: '0.8rem' }}>Abrir en nueva pestaña</a>
-                              <div style={{ marginTop: '0.5rem', maxWidth: '300px', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                                <img src={`${import.meta.env.VITE_API_URL || ''}${solicitud.croquisUrl}`} alt="Croquis" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                          {solicitud.croquisUrl && (() => {
+                            /**
+                             * Resolución de la URL absoluta del croquis.
+                             *
+                             * `import.meta.env.VITE_API_URL` se usa como prefijo porque en
+                             * producción los assets estáticos (`/uploads/croquis/...`) se
+                             * sirven desde un dominio/puerto diferente al del frontend.
+                             * En desarrollo local, esta variable suele estar vacía y la
+                             * URL relativa funciona gracias al proxy de Vite configurado
+                             * en `vite.config.ts` (`server.proxy` → backend).
+                             *
+                             * Sin este prefijo, los assets se romperían en producción
+                             * porque el navegador resolvería `/uploads/croquis/...`
+                             * contra el origen del frontend (ej. `app.tigretrack.com`)
+                             * en lugar del servidor Node.js (ej. `api.tigretrack.com:3000`).
+                             */
+                            const BASE = import.meta.env.VITE_API_URL || ''
+                            const fullUrl = `${BASE}${solicitud.croquisUrl}`
+
+                            /**
+                             * Bifurcación MIME — algoritmo de detección por extensión:
+                             *
+                             *   - Extensiones de imagen (`.png`, `.jpg`, `.jpeg`, `.gif`,
+                             *     `.webp`): se renderiza una etiqueta `<img>` con la URL
+                             *     directamente para vista previa en el modal.
+                             *   - Extensión `.pdf`: se renderiza un anchor `<a>` con
+                             *     `target="_blank"` y `rel="noopener noreferrer"` para
+                             *     abrir el PDF en una pestaña nueva del navegador (que
+                             *     generalmente tiene visor PDF nativo). También se añade
+                             *     un mensaje informativo indicando que no hay vista previa.
+                             *   - Cualquier otra extensión: fallback a anchor `<a>` con
+                             *     el mismo comportamiento de nueva pestaña.
+                             *
+                             * Esta bifurcación evita que los PDFs se rendericen como
+                             * `<img>` (mostrando un icono de imagen rota) y garantiza
+                             * que todos los formatos permitidos por el `fileFilter` de
+                             * multer tengan una representación visual correcta.
+                             */
+                            const ext = solicitud.croquisUrl?.toLowerCase().match(/\.(\w+)$/)?.[1]
+                            const isImage = ext && ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)
+                            const isPdf = ext === 'pdf'
+
+                            return (
+                              <div>
+                                <span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#475569' }}>Croquis: </span>
+                                <a href={fullUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', fontWeight: 600, fontSize: '0.8rem' }}>
+                                  {isPdf ? 'Abrir PDF en nueva pestaña' : 'Abrir en nueva pestaña'}
+                                </a>
+                                {isImage ? (
+                                  <div style={{ marginTop: '0.5rem', maxWidth: '300px', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                                    <img src={fullUrl} alt="Croquis" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                                  </div>
+                                ) : isPdf ? (
+                                  <div style={{ marginTop: '0.5rem', padding: '1rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', textAlign: 'center', fontSize: '0.8rem', color: '#64748B' }}>
+                                    La vista previa no está disponible para archivos PDF.
+                                  </div>
+                                ) : null}
                               </div>
-                            </div>
-                          )}
+                            )
+                          })()}
                         </div>
                       )}
                     </div>

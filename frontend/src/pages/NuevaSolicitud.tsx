@@ -116,6 +116,53 @@ export default function NuevaSolicitud() {
     }
   };
 
+  /**
+   * Envía el formulario de nueva solicitud en un pipeline de dos pasos.
+   *
+   * Pipeline:
+   *
+   *   **Paso 1 — Estructura JSON (síncrono):**
+   *   Envía `POST /api/solicitudes` con todo el cuerpo del formulario en
+   *   formato JSON (datos del solicitante, evento, materiales,etc.). El
+   *   backend persiste la solicitud y retorna `{ id: number }`.
+   *
+   *   Razón: la estructura JSON se envía primero porque la solicitud debe
+   *   existir en la base de datos antes de poder asociarle un archivo
+   *   binario. El ID retornado por la BD (`respuesta.data.id`) se captura
+   *   inmediatamente en `nuevoId` y se usa para dos propósitos:
+   *     a) Mostrar el QR code vinculado a `evaluar/${nuevoId}`.
+   *     b) Construir la URL del endpoint de croquis.
+   *
+   *   **Paso 2 — Archivo binario (condicional):**
+   *   Si el usuario seleccionó un archivo de croquis (`croquisFile` no es
+   *   null), se construye un contenedor `FormData` con el campo `'croquis'`
+   *   conteniendo el `File` directamente (sin serialización JSON). Este
+   *   `FormData` se envía via `POST /api/solicitudes/${nuevoId}/croquis`
+   *   con el header `Content-Type: multipart/form-data` forzado (Axios no
+   *   lo infiere automáticamente para FormData porque el interceptor de
+   *   JWT podría sobreescribirlo).
+   *
+   *   Separación de responsabilidades:
+   *   - El endpoint JSON estándar (`/api/solicitudes`) maneja datos
+   *     estructurados con `Content-Type: application/json`.
+   *   - El endpoint multer (`/:id/croquis`) maneja el flujo binario con
+   *     `Content-Type: multipart/form-data`.
+   *   Esta separación evita tener que parsear multipart en el endpoint de
+   *   creación y mantiene cada handler con una responsabilidad única.
+   *
+   *   Si la subida del croquis falla, la solicitud ya se creó, por lo que
+   *   el error se registra en consola pero NO impide que el flujo continúe
+   *   (el usuario ve la solicitud creada exitosamente).
+   *
+   * Validaciones previas al envío:
+   *   - Fecha del evento ≥ hoy + 7 días (política de anticipación).
+   *   - `horaFin` > `horaInicio`.
+   *   - `horaMontaje` ≤ `horaInicio` (si se especifica).
+   *
+   * @param e - Evento de submit del formulario HTML.
+   *
+   * @returns {Promise<void>}
+   */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
